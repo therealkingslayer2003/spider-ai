@@ -1,5 +1,7 @@
 # Architecture
 
+This document describes spider-ai — an asset market research copilot.
+
 ## Overview
 
 The backend is a FastAPI application structured in vertical layers. Each layer has a single responsibility. No layer may skip a layer below it.
