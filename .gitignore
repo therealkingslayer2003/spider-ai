@@ -1,0 +1,58 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtualenv
+.venv/
+venv/
+env/
+venv.bak/
+
+# env files
+.env
+.env.*
+
+# Editor directories and files
+.vscode/
+.idea/
+
+# Testing
+.pytest_cache/
+coverage.xml
+htmlcov/
+.coverage
+
+# Caches
+.cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+*.log
+
+# Ollama local data volume
+ollama-data/
+
+# Misc
+*.local
+instance/
+
+# Python wheel metadata
+pip-wheel-metadata/
