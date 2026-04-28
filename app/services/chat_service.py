@@ -11,12 +11,12 @@ class ChatService:
         user_context = f"Asset: {asset}\n" if asset else ""
 
         prompt = f"""
-{BASIC_SYSTEM_PROMPT}
+                    {BASIC_SYSTEM_PROMPT}
 
-{user_context}
-User question:
-{message}
-"""
+                    {user_context}
+                    User question:
+                    {message}
+                """
 
         answer = await self._llm_client.generate(prompt)
 

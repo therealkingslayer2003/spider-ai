@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "AI Market Research Copilot"
+    app_name: str = "Spider"
     app_env: str = "local"
     app_debug: bool = True
 

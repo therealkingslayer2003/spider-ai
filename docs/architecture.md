@@ -128,5 +128,3 @@ curl -X POST http://localhost:8000/api/v1/chat \
 - `Dockerfile`, `docker-compose.yml` — container build & orchestration
 
 ---
-
-If you'd like I can also add a simple diagram (Mermaid) or include a short runbook that automates pulling a model and running a smoke test against `/api/v1/chat`.
