@@ -1,20 +1,15 @@
-#!/bin/bash
-# Unix/Linux/macOS pre-push git hook
-# Installation: Copy this file to .git/hooks/pre-push and make it executable:
-#   chmod +x .git/hooks/pre-push
+#!/bin/sh
+# pre-push hook — runs before git push
+# Works on Windows (Git for Windows), macOS, and Linux
+# Installation: python scripts/setup-hooks.py
 
-echo "🔍 Running pre-push format check..."
-
-# Run format check
 uv run ruff format --check app/ tests/
 
 if [ $? -ne 0 ]; then
     echo ""
-    echo "❌ Format check failed. Please run 'uv run ruff format app/ tests/' to fix formatting."
-    echo "Then stage and push again."
+    echo "Format check failed. Run 'uv run ruff format app/ tests/' to fix, then push again."
+    echo ""
     exit 1
 fi
 
-echo ""
-echo "✅ Format check passed. Proceeding with push."
 exit 0

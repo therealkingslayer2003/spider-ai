@@ -21,19 +21,19 @@ uv run ruff check --fix app/ tests/
 
 Install git hooks so code is checked before every push:
 
-**Windows:**
+**Windows (batch):**
 ```powershell
 python scripts/setup-hooks.py
 ```
 
-**macOS/Linux:**
+**macOS/Linux (bash):**
 ```bash
 python scripts/setup-hooks.py
 ```
 
 ### What happens
 
-- Before you push, the `pre-push` hook runs `uv run ruff format --check app/ tests/`
+- Before you push, the `pre-push` hook automatically runs `uv run ruff format --check app/ tests/`
 - If formatting issues are found, the push is **blocked**
 - Fix by running `uv run ruff format app/ tests/`, then commit and push again
 - To bypass (not recommended): `git push --no-verify`
@@ -42,19 +42,18 @@ python scripts/setup-hooks.py
 
 **Windows (PowerShell):**
 ```powershell
-Copy-Item scripts/pre-push.ps1 .git/hooks/pre-push
-# Then configure Git to use PowerShell:
-git config core.hooksPath scripts
+Copy-Item scripts/pre-push .git/hooks/pre-push
 ```
 
-**macOS/Linux (bash):**
+**macOS/Linux:**
 ```bash
 cp scripts/pre-push .git/hooks/pre-push
 chmod +x .git/hooks/pre-push
 ```
 
+> **Note:** Git for Windows uses its own `sh.exe` to run hooks, so the same shell script works on all platforms.
+
 ## Files
 
-- `pre-push` — Unix/Linux/macOS git hook
-- `pre-push.ps1` — Windows PowerShell git hook
+- `pre-push` — Git hook (works on Windows, macOS, and Linux)
 - `setup-hooks.py` — Automated hook installer
