@@ -1,9 +1,9 @@
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
-class Mode(str, Enum):
+class AssetSnapshotMode(str, Enum):
     """Position mode for asset snapshot."""
 
     SHORT = "short"
@@ -22,7 +22,7 @@ class AssetType(str, Enum):
 
 
 class ShortAssetSnapshot(BaseModel):
-    mode: Mode
+    mode: AssetSnapshotMode
     asset: str
     asset_type: AssetType
     summary: str
@@ -34,3 +34,33 @@ class LongAssetSnapshot(ShortAssetSnapshot):
     business_or_asset_profile: str
     structural_drivers: list[str]
     structural_risks: list[str]
+
+
+class AssetSnapshotRequest(BaseModel):
+    asset: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="Asset ticker, symbol, or identifier. Examples: NVDA, EUR/USD, GOLD, SPY.",
+        examples=["NVDA"],
+    )
+    asset_type: AssetType = Field(
+        ...,
+        description="Asset class/type.",
+        examples=[AssetType.STOCK],
+    )
+    mode: AssetSnapshotMode = Field(
+        ...,
+        description="Snapshot mode: short or long.",
+        examples=[AssetSnapshotMode.SHORT],
+    )
+
+    @field_validator("asset")
+    @classmethod
+    def normalize_asset(cls, value: str) -> str:
+        cleaned = value.strip()
+
+        if not cleaned:
+            raise ValueError("Asset must not be empty.")
+
+        return cleaned.upper()

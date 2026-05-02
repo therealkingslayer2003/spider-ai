@@ -52,7 +52,6 @@ Do not include bull case, bear case, key risks, key drivers, confidence, evidenc
 """
 
 
-
 LONG_ASSET_SNAPSHOT_PROMPT = """
 You are Spider-AI, an asset market research copilot.
 
@@ -122,4 +121,3 @@ Important distinction:
 This is a stable structural asset profile, not a current investment recommendation.
 Do not include current catalysts, live news, valuation judgment, confidence score, evidence score, or thesis conclusion.
 """
-
