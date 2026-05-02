@@ -1,6 +1,6 @@
 from app.core.config import get_settings
 from app.llm.ollama_client import OllamaChatClient
-from app.llm.prompts import BASIC_SYSTEM_PROMPT
+from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
 
 class ChatService:
@@ -11,7 +11,7 @@ class ChatService:
         user_context = f"Asset: {asset}\n" if asset else ""
 
         prompt = f"""
-                    {BASIC_SYSTEM_PROMPT}
+                    {BASE_SYSTEM_PROMPT}
 
                     {user_context}
                     User question:
