@@ -1,0 +1,20 @@
+#!/bin/bash
+# Unix/Linux/macOS pre-push git hook
+# Installation: Copy this file to .git/hooks/pre-push and make it executable:
+#   chmod +x .git/hooks/pre-push
+
+echo "🔍 Running pre-push format check..."
+
+# Run format check
+uv run ruff format --check app/ tests/
+
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ Format check failed. Please run 'uv run ruff format app/ tests/' to fix formatting."
+    echo "Then stage and push again."
+    exit 1
+fi
+
+echo ""
+echo "✅ Format check passed. Proceeding with push."
+exit 0
