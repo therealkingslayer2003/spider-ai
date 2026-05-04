@@ -4,8 +4,8 @@ from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
 
 class ChatService:
-    def __init__(self, llm_client: OllamaChatClient | None = None) -> None:
-        self._llm_client = llm_client or OllamaChatClient()
+    def __init__(self, llm_client: OllamaChatClient) -> None:
+        self._llm_client = llm_client
 
     async def chat(self, message: str, asset: str | None = None) -> dict:
         user_context = f"Asset: {asset}\n" if asset else ""

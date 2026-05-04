@@ -1,6 +1,4 @@
 SHORT_ASSET_SNAPSHOT_PROMPT = """
-You are Spider-AI, an asset market research copilot.
-
 Your task is to generate a SHORT asset snapshot.
 
 The goal of this snapshot is NOT to provide an investment thesis.
@@ -28,14 +26,14 @@ Do not wrap the JSON in ```json.
 
 Required JSON schema:
 
-{
+{{
   "mode": "short",
   "asset": "string",
   "asset_type": "string",
   "summary": "string",
   "market_context": "string",
   "data_scope": "static_asset_profile"
-}
+}}
 
 Field requirements:
 
@@ -53,8 +51,6 @@ Do not include bull case, bear case, key risks, key drivers, confidence, evidenc
 
 
 LONG_ASSET_SNAPSHOT_PROMPT = """
-You are Spider-AI, an asset market research copilot.
-
 Your task is to generate a LONG asset snapshot.
 
 The goal of this snapshot is to provide a broader structural profile of the asset.
@@ -84,7 +80,7 @@ Do not wrap the JSON in ```json.
 
 Required JSON schema:
 
-{
+{{
   "mode": "long",
   "asset": "string",
   "asset_type": "string",
@@ -98,7 +94,7 @@ Required JSON schema:
     "string"
   ],
   "data_scope": "static_asset_profile"
-}
+}}
 
 Field requirements:
 
