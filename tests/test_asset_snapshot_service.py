@@ -3,11 +3,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.schemas.asset_snapshot import AssetSnapshotMode, AssetType, LongAssetSnapshot, ShortAssetSnapshot
+from app.domain.schemas.asset_snapshot import (
+    AssetSnapshotMode,
+    AssetType,
+    LongAssetSnapshot,
+    ShortAssetSnapshot,
+)
 from app.services.asset_snapshot_service import AssetSnapshotService
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
 
 def make_short_json(asset: str = "NVDA", asset_type: str = "stock") -> str:
     return json.dumps(
@@ -40,6 +46,7 @@ def make_long_json(asset: str = "NVDA", asset_type: str = "stock") -> str:
 
 # ── fixtures ────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def mock_llm() -> AsyncMock:
     client = AsyncMock()
@@ -55,22 +62,31 @@ def mock_builder() -> MagicMock:
 
 # ── short-mode tests ─────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
-async def test_get_snapshot_short_returns_short_model(mock_llm: AsyncMock, mock_builder: MagicMock) -> None:
+async def test_get_snapshot_short_returns_short_model(
+    mock_llm: AsyncMock, mock_builder: MagicMock
+) -> None:
     mock_llm.generate.return_value = make_short_json()
     service = AssetSnapshotService(llm_client=mock_llm, prompt_builder=mock_builder)
 
-    result = await service.get_snapshot("NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT)
+    result = await service.get_snapshot(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT
+    )
 
     assert isinstance(result, ShortAssetSnapshot)
 
 
 @pytest.mark.asyncio
-async def test_get_snapshot_short_fields(mock_llm: AsyncMock, mock_builder: MagicMock) -> None:
+async def test_get_snapshot_short_fields(
+    mock_llm: AsyncMock, mock_builder: MagicMock
+) -> None:
     mock_llm.generate.return_value = make_short_json()
     service = AssetSnapshotService(llm_client=mock_llm, prompt_builder=mock_builder)
 
-    result = await service.get_snapshot("NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT)
+    result = await service.get_snapshot(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT
+    )
 
     assert result.asset == "NVDA"
     assert result.asset_type == AssetType.STOCK
@@ -80,8 +96,11 @@ async def test_get_snapshot_short_fields(mock_llm: AsyncMock, mock_builder: Magi
 
 # ── long-mode tests ──────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
-async def test_get_snapshot_long_returns_long_model(mock_llm: AsyncMock, mock_builder: MagicMock) -> None:
+async def test_get_snapshot_long_returns_long_model(
+    mock_llm: AsyncMock, mock_builder: MagicMock
+) -> None:
     mock_llm.generate.return_value = make_long_json()
     service = AssetSnapshotService(llm_client=mock_llm, prompt_builder=mock_builder)
 
@@ -91,7 +110,9 @@ async def test_get_snapshot_long_returns_long_model(mock_llm: AsyncMock, mock_bu
 
 
 @pytest.mark.asyncio
-async def test_get_snapshot_long_fields(mock_llm: AsyncMock, mock_builder: MagicMock) -> None:
+async def test_get_snapshot_long_fields(
+    mock_llm: AsyncMock, mock_builder: MagicMock
+) -> None:
     mock_llm.generate.return_value = make_long_json()
     service = AssetSnapshotService(llm_client=mock_llm, prompt_builder=mock_builder)
 
@@ -105,18 +126,25 @@ async def test_get_snapshot_long_fields(mock_llm: AsyncMock, mock_builder: Magic
 
 # ── prompt builder delegation ────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
-async def test_get_snapshot_calls_prompt_builder(mock_llm: AsyncMock, mock_builder: MagicMock) -> None:
+async def test_get_snapshot_calls_prompt_builder(
+    mock_llm: AsyncMock, mock_builder: MagicMock
+) -> None:
     mock_llm.generate.return_value = make_short_json()
     service = AssetSnapshotService(llm_client=mock_llm, prompt_builder=mock_builder)
 
     await service.get_snapshot("NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT)
 
-    mock_builder.build_prompt.assert_called_once_with("NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT)
+    mock_builder.build_prompt.assert_called_once_with(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT
+    )
 
 
 @pytest.mark.asyncio
-async def test_get_snapshot_passes_prompt_to_llm(mock_llm: AsyncMock, mock_builder: MagicMock) -> None:
+async def test_get_snapshot_passes_prompt_to_llm(
+    mock_llm: AsyncMock, mock_builder: MagicMock
+) -> None:
     mock_builder.build_prompt.return_value = "expected prompt"
     mock_llm.generate.return_value = make_short_json()
     service = AssetSnapshotService(llm_client=mock_llm, prompt_builder=mock_builder)
@@ -127,6 +155,7 @@ async def test_get_snapshot_passes_prompt_to_llm(mock_llm: AsyncMock, mock_build
 
 
 # ── error handling ───────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_get_snapshot_raises_value_error_on_invalid_json(

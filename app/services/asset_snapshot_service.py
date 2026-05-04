@@ -1,4 +1,3 @@
-
 from pydantic import ValidationError
 
 from app.domain.schemas.asset_snapshot import (
@@ -35,4 +34,3 @@ class AssetSnapshotService:
             raise ValueError(
                 f"Failed to parse LLM response into AssetSnapshot: {e}\nResponse content: {response}"
             ) from e
-   
