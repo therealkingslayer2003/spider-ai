@@ -30,5 +30,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "auto"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

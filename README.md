@@ -1,6 +1,6 @@
-# AI Market Research Copilot
+# spider-ai
 
-Evidence-aware AI research copilot for structured asset and market analysis.
+spider-ai — an asset market research copilot for structured asset and market analysis.
 
 ## Current Status
 
