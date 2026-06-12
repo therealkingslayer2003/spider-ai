@@ -79,3 +79,85 @@ def test_prompt_does_not_raise_on_all_asset_types(
             # Should not raise KeyError or any other exception
             prompt = builder.build_prompt("TEST", asset_type, mode)
             assert len(prompt) > 0
+
+
+# ── asset_profile_context injection ─────────────────────────────────────────
+
+
+from app.domain.schemas.asset_profile_context import AssetProfileContext
+
+
+@pytest.fixture
+def profile_context() -> AssetProfileContext:
+    return AssetProfileContext(
+        asset="NVDA",
+        asset_type=AssetType.STOCK,
+        name="NVIDIA Corporation",
+        sector="Technology",
+        industry="Semiconductors",
+        business_summary="NVIDIA designs GPUs and system-on-chip units.",
+        exchange="NASDAQ",
+        currency="USD",
+        country="USA",
+        provider="test",
+    )
+
+
+def test_prompt_without_context_has_no_profile_section(
+    builder: AssetSnapshotPromptBuilder,
+) -> None:
+    prompt = builder.build_prompt("NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT)
+    assert "Asset profile context" not in prompt
+
+
+def test_prompt_with_context_includes_profile_section(
+    builder: AssetSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT,
+        asset_profile_context=profile_context,
+    )
+    assert "Asset profile context" in prompt
+
+
+def test_prompt_with_context_includes_all_fields(
+    builder: AssetSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT,
+        asset_profile_context=profile_context,
+    )
+    assert "NVIDIA Corporation" in prompt
+    assert "Technology" in prompt
+    assert "Semiconductors" in prompt
+    assert "NASDAQ" in prompt
+    assert "USD" in prompt
+    assert "USA" in prompt
+    assert "NVIDIA designs GPUs" in prompt
+
+
+def test_prompt_with_none_context_equals_prompt_without_context(
+    builder: AssetSnapshotPromptBuilder,
+) -> None:
+    """Passing None explicitly should be identical to omitting the argument."""
+    without = builder.build_prompt("NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT)
+    with_none = builder.build_prompt(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT, asset_profile_context=None
+    )
+    assert without == with_none
+
+
+def test_profile_section_appended_after_mode_prompt(
+    builder: AssetSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    """Profile context must come after the main prompt body, not before."""
+    prompt = builder.build_prompt(
+        "NVDA", AssetType.STOCK, AssetSnapshotMode.SHORT,
+        asset_profile_context=profile_context,
+    )
+    main_prompt_end = prompt.index("data_scope")
+    profile_start = prompt.index("Asset profile context")
+    assert profile_start > main_prompt_end
