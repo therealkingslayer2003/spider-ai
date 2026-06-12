@@ -17,8 +17,4 @@ async def get_asset_snapshot(
     request: AssetSnapshotRequest,
     service: AssetSnapshotService = Depends(get_asset_snapshot_service),
 ) -> ShortAssetSnapshot | LongAssetSnapshot:
-    return await service.get_snapshot(
-        asset=request.asset,
-        asset_type=request.asset_type,
-        mode=request.mode,
-    )
+    return await service.get_snapshot(request)

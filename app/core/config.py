@@ -11,13 +11,14 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_chat_model: str = "llama3.1"
+    ollama_chat_model: str = "llama3.1:8b"
     ollama_temperature: float = 0.2
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
 
