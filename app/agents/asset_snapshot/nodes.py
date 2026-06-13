@@ -2,7 +2,7 @@ import json
 
 from app.agents.asset_snapshot.state import AssetSnapshotState
 from app.agents.asset_snapshot.tools import AssetSnapshotTool
-from app.domain.schemas.asset_snapshot import AssetSnapshotMode, AssetType, LongAssetSnapshot, ShortAssetSnapshot
+from app.domain.schemas.asset_snapshot import AssetSnapshot, AssetType
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
 
@@ -65,7 +65,6 @@ async def generate_snapshot_node(
     prompt = prompt_builder.build_prompt(
         asset=request.asset,
         asset_type=request.asset_type,
-        mode=request.mode,
         asset_profile_context=state.get("asset_profile_context"),
     )
 
@@ -90,11 +89,7 @@ async def validate_snapshot_node(state: AssetSnapshotState) -> AssetSnapshotStat
 
     try:
         data = json.loads(raw_llm_output)
-        mode = data.get("mode")
-        if mode == AssetSnapshotMode.SHORT:
-            validated_output = ShortAssetSnapshot.model_validate(data)
-        else:
-            validated_output = LongAssetSnapshot.model_validate(data)
+        validated_output = AssetSnapshot.model_validate(data)
         return {"validated_output": validated_output}
     except Exception as e:
         return {

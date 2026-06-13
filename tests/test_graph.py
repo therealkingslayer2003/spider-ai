@@ -1,19 +1,8 @@
 """
 Integration tests for the compiled LangGraph.
 
-Mental model
-------------
-Graph tests sit one layer above node tests. They test the *wiring*:
-- Do nodes execute in the right order?
-- Does state flow correctly between nodes?
-- Does the final state contain the expected output?
-
-We still mock ALL external I/O (LLM, tools) — we are not testing Ollama
-or network calls here. The graph itself (edges, state passing) is what
-we are validating.
-
-Use graph.ainvoke() directly. This exercises the full compiled graph
-the same way the runner does in production.
+Graph tests test the *wiring*: node order, state flow, and final output.
+We mock all external I/O (LLM, tools) — no real network calls.
 """
 import json
 from unittest.mock import AsyncMock, MagicMock
@@ -23,11 +12,9 @@ import pytest
 from app.agents.asset_snapshot.graph import build_asset_snapshot_graph
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import (
-    AssetSnapshotMode,
+    AssetSnapshot,
     AssetSnapshotRequest,
     AssetType,
-    LongAssetSnapshot,
-    ShortAssetSnapshot,
 )
 
 
@@ -37,9 +24,8 @@ from app.domain.schemas.asset_snapshot import (
 def make_request(
     asset: str = "NVDA",
     asset_type: AssetType = AssetType.STOCK,
-    mode: AssetSnapshotMode = AssetSnapshotMode.SHORT,
 ) -> AssetSnapshotRequest:
-    return AssetSnapshotRequest(asset=asset, asset_type=asset_type, mode=mode)
+    return AssetSnapshotRequest(asset=asset, asset_type=asset_type)
 
 
 def make_profile(asset: str = "NVDA") -> AssetProfileContext:
@@ -57,25 +43,13 @@ def make_profile(asset: str = "NVDA") -> AssetProfileContext:
     )
 
 
-def short_llm_response(asset: str = "NVDA") -> str:
+def llm_response(asset: str = "NVDA") -> str:
     return json.dumps({
-        "mode": "short",
         "asset": asset,
         "asset_type": "stock",
         "summary": "GPU manufacturer.",
         "market_context": "Semiconductor sector.",
-        "data_scope": "static_asset_profile",
-    })
-
-
-def long_llm_response(asset: str = "NVDA") -> str:
-    return json.dumps({
-        "mode": "long",
-        "asset": asset,
-        "asset_type": "stock",
-        "summary": "GPU manufacturer.",
         "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-        "market_context": "Semiconductor sector.",
         "structural_drivers": ["AI demand"],
         "structural_risks": ["supply chain"],
         "data_scope": "static_asset_profile",
@@ -99,7 +73,7 @@ def mock_prompt_builder() -> MagicMock:
 @pytest.fixture
 def mock_llm() -> AsyncMock:
     llm = AsyncMock()
-    llm.generate.return_value = short_llm_response()
+    llm.generate.return_value = llm_response()
     return llm
 
 
@@ -107,36 +81,32 @@ def mock_llm() -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_graph_produces_short_snapshot(
+async def test_graph_produces_asset_snapshot(
     mock_profile_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
     graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
 
-    final_state = await graph.ainvoke({
-        "request": make_request(mode=AssetSnapshotMode.SHORT),
-        "errors": [],
-    })
+    final_state = await graph.ainvoke({"request": make_request(), "errors": []})
 
-    assert isinstance(final_state["validated_output"], ShortAssetSnapshot)
+    assert isinstance(final_state["validated_output"], AssetSnapshot)
 
 
 @pytest.mark.asyncio
-async def test_graph_produces_long_snapshot(
+async def test_graph_snapshot_has_all_fields(
     mock_profile_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
-    mock_llm.generate.return_value = long_llm_response()
     graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
 
-    final_state = await graph.ainvoke({
-        "request": make_request(mode=AssetSnapshotMode.LONG),
-        "errors": [],
-    })
+    final_state = await graph.ainvoke({"request": make_request(), "errors": []})
+    output = final_state["validated_output"]
 
-    assert isinstance(final_state["validated_output"], LongAssetSnapshot)
+    assert output.structural_drivers == ["AI demand"]
+    assert output.structural_risks == ["supply chain"]
+    assert output.business_or_asset_profile == "Designs GPUs for gaming and AI."
 
 
 @pytest.mark.asyncio

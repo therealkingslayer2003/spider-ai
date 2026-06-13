@@ -1,10 +1,7 @@
 from app.domain.schemas.asset_profile_context import AssetProfileContext
-from app.domain.schemas.asset_snapshot import AssetSnapshotMode, AssetType
+from app.domain.schemas.asset_snapshot import AssetType
 from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
-from app.llm.prompts.feature_snapshot_prompt import (
-    LONG_ASSET_SNAPSHOT_PROMPT,
-    SHORT_ASSET_SNAPSHOT_PROMPT,
-)
+from app.llm.prompts.feature_snapshot_prompt import ASSET_SNAPSHOT_PROMPT
 
 
 class AssetSnapshotPromptBuilder:
@@ -12,15 +9,9 @@ class AssetSnapshotPromptBuilder:
         self,
         asset: str,
         asset_type: AssetType,
-        mode: AssetSnapshotMode,
         asset_profile_context: AssetProfileContext | None = None,
     ) -> str:
-        if mode == AssetSnapshotMode.SHORT:
-            mode_prompt = SHORT_ASSET_SNAPSHOT_PROMPT
-        else:
-            mode_prompt = LONG_ASSET_SNAPSHOT_PROMPT
-
-        prompt = BASE_SYSTEM_PROMPT + "\n\n" + mode_prompt.format(
+        prompt = BASE_SYSTEM_PROMPT + "\n\n" + ASSET_SNAPSHOT_PROMPT.format(
             asset=asset,
             asset_type=asset_type.value,
         )

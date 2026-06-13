@@ -11,8 +11,11 @@ This project is currently at the backend skeleton stage.
 - FastAPI backend
 - Local LLM integration through Ollama
 - LangChain `ChatOllama` client
+- LangGraph agent pipeline (planner → profile tool → LLM generation → validation)
+- Asset snapshot endpoint — structured `AssetSnapshot` output with profile, drivers, and risks (mocked data for now)
 - Basic chat endpoint
 - Health endpoint
+- LangSmith observability integration
 - Production-minded project structure
 
 ## Run Locally
@@ -65,13 +68,24 @@ pytest
 curl http://localhost:8000/api/v1/health
 ```
 
+## Get Asset Snapshot
+
+```bash
+curl -X POST http://localhost:8000/api/v1/asset/snapshot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asset": "NVDA",
+    "asset_type": "stock"
+  }'
+```
+
 ## Test Chat
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "Give me a short research-style overview of NVIDIA.",
+    "message": "Give me a research-style overview of NVIDIA.",
     "asset": "NVDA"
   }'
 ```
@@ -96,7 +110,6 @@ tests/                  # pytest test suite
 ## Roadmap
 
 - Structured outputs
-- Asset snapshot mode
 - Market data tools
 - RAG
 - Evidence-aware answers

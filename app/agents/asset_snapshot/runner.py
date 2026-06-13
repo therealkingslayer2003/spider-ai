@@ -1,9 +1,5 @@
 from app.agents.asset_snapshot.graph import build_asset_snapshot_graph
-from app.domain.schemas.asset_snapshot import (
-    AssetSnapshotRequest,
-    ShortAssetSnapshot,
-    LongAssetSnapshot,
-)
+from app.domain.schemas.asset_snapshot import AssetSnapshot, AssetSnapshotRequest
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
 from app.llm.ollama_client import OllamaChatClient
 from app.tools.asset_snapshot.stable_asset_profile_search import StableAssetProfileSearchTool
@@ -25,7 +21,7 @@ class AssetSnapshotGraphRunner:
     async def run(
         self,
         request: AssetSnapshotRequest,
-    ) -> ShortAssetSnapshot | LongAssetSnapshot:
+    ) -> AssetSnapshot:
         final_state = await self.graph.ainvoke(
             {
                 "request": request,

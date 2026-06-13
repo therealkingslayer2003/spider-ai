@@ -3,13 +3,6 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
 
-class AssetSnapshotMode(str, Enum):
-    """Position mode for asset snapshot."""
-
-    SHORT = "short"
-    LONG = "long"
-
-
 class AssetType(str, Enum):
     """Supported asset types."""
 
@@ -21,19 +14,15 @@ class AssetType(str, Enum):
     FX = "fx"
 
 
-class ShortAssetSnapshot(BaseModel):
-    mode: AssetSnapshotMode
+class AssetSnapshot(BaseModel):
     asset: str
     asset_type: AssetType
     summary: str
     market_context: str
-    data_scope: str
-
-
-class LongAssetSnapshot(ShortAssetSnapshot):
     business_or_asset_profile: str
     structural_drivers: list[str]
     structural_risks: list[str]
+    data_scope: str
 
 
 class AssetSnapshotRequest(BaseModel):
@@ -48,11 +37,6 @@ class AssetSnapshotRequest(BaseModel):
         ...,
         description="Asset class/type.",
         examples=[AssetType.STOCK],
-    )
-    mode: AssetSnapshotMode = Field(
-        ...,
-        description="Snapshot mode: short or long.",
-        examples=[AssetSnapshotMode.SHORT],
     )
 
     @field_validator("asset")
