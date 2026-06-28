@@ -4,12 +4,14 @@ Unit tests for LangGraph nodes.
 A LangGraph node is just an async function: (state: dict) -> dict.
 LangGraph is NOT involved here — we call each node function directly.
 """
+
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.agents.asset_snapshot.nodes import (
+    ambiguous_asset_resolution_node,
     asset_profile_tool_node,
     generate_snapshot_node,
     planner_node,
@@ -21,7 +23,6 @@ from app.domain.schemas.asset_snapshot import (
     AssetSnapshotRequest,
     AssetType,
 )
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,16 +50,18 @@ def make_profile(asset: str = "NVDA") -> AssetProfileContext:
 
 
 def snapshot_json(asset: str = "NVDA") -> str:
-    return json.dumps({
-        "asset": asset,
-        "asset_type": "stock",
-        "summary": "GPU manufacturer.",
-        "market_context": "Semiconductor sector.",
-        "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-        "structural_drivers": ["AI demand"],
-        "structural_risks": ["supply chain"],
-        "data_scope": "static_asset_profile",
-    })
+    return json.dumps(
+        {
+            "asset": asset,
+            "asset_type": "stock",
+            "summary": "GPU manufacturer.",
+            "market_context": "Semiconductor sector.",
+            "business_or_asset_profile": "Designs GPUs for gaming and AI.",
+            "structural_drivers": ["AI demand"],
+            "structural_risks": ["supply chain"],
+            "data_scope": "static_asset_profile",
+        }
+    )
 
 
 # ── planner_node ─────────────────────────────────────────────────────────────
@@ -117,6 +120,22 @@ async def test_asset_profile_tool_calls_run_with_correct_args() -> None:
     }
     await asset_profile_tool_node(state, tools)
     mock_tool.run.assert_awaited_once_with(asset="NVDA", asset_type=AssetType.STOCK)
+
+
+@pytest.mark.asyncio
+async def test_asset_profile_tool_uses_resolved_asset_when_available() -> None:
+    mock_tool = AsyncMock()
+    mock_tool.run.return_value = make_profile("AAPL")
+    tools = {"stable_asset_profile_search": mock_tool}
+
+    state = {
+        "request": make_request(asset="Apple", asset_type=AssetType.STOCK),
+        "resolved_asset": "AAPL",
+        "selected_tool_name": "stable_asset_profile_search",
+        "errors": [],
+    }
+    await asset_profile_tool_node(state, tools)
+    mock_tool.run.assert_awaited_once_with(asset="AAPL", asset_type=AssetType.STOCK)
 
 
 @pytest.mark.asyncio
@@ -188,6 +207,82 @@ async def test_generate_snapshot_passes_profile_context_to_builder() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ambiguous_resolver_skips_ticker_like_input() -> None:
+    mock_llm = AsyncMock()
+    state = {"request": make_request(asset="NVDA"), "errors": []}
+
+    result = await ambiguous_asset_resolution_node(state, mock_llm)
+
+    assert result["resolved_asset"] is None
+    mock_llm.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_resolver_resolves_common_name() -> None:
+    mock_llm = AsyncMock()
+    mock_llm.generate.return_value = json.dumps(
+        {
+            "original_asset": "APPLE",
+            "resolved_asset": "AAPL",
+            "confidence": 0.92,
+            "reasoning": "Apple commonly refers to Apple Inc.",
+        }
+    )
+    state = {"request": make_request(asset="Apple"), "errors": []}
+
+    result = await ambiguous_asset_resolution_node(state, mock_llm)
+
+    assert result["resolved_asset"] == "AAPL"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_resolver_extracts_ticker_prefix_without_llm() -> None:
+    mock_llm = AsyncMock()
+    state = {"request": make_request(asset="MA(MASTERCARD)"), "errors": []}
+
+    result = await ambiguous_asset_resolution_node(state, mock_llm)
+
+    assert result["resolved_asset"] == "MA"
+    mock_llm.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_resolver_parses_markdown_fenced_json() -> None:
+    mock_llm = AsyncMock()
+    mock_llm.generate.return_value = """```json
+{
+  "original_asset": "MA(MASTERCARD)",
+  "resolved_asset": "MA",
+  "confidence": 1.0,
+  "reasoning": "Resolved to MA, likely Mastercard."
+}
+```"""
+    state = {"request": make_request(asset="MA(MASTERCARD)"), "errors": []}
+
+    result = await ambiguous_asset_resolution_node(state, mock_llm)
+
+    assert result["resolved_asset"] == "MA"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_resolver_rejects_non_ticker_like_llm_resolution() -> None:
+    mock_llm = AsyncMock()
+    mock_llm.generate.return_value = json.dumps(
+        {
+            "original_asset": "MASTERCARD",
+            "resolved_asset": "MASTECO",
+            "confidence": 0.8,
+            "reasoning": "Incorrectly invented ticker.",
+        }
+    )
+    state = {"request": make_request(asset="Mastercard"), "errors": []}
+
+    result = await ambiguous_asset_resolution_node(state, mock_llm)
+
+    assert result["resolved_asset"] is None
+
+
+@pytest.mark.asyncio
 async def test_generate_snapshot_records_error_on_llm_failure() -> None:
     mock_llm = AsyncMock()
     mock_llm.generate.side_effect = RuntimeError("timeout")
@@ -208,6 +303,16 @@ async def test_validate_snapshot_parses_json() -> None:
     state = {"raw_llm_output": snapshot_json(), "errors": []}
     result = await validate_snapshot_node(state)
     assert isinstance(result["validated_output"], AssetSnapshot)
+
+
+@pytest.mark.asyncio
+async def test_validate_snapshot_parses_markdown_fenced_json() -> None:
+    state = {"raw_llm_output": f"```json\n{snapshot_json('MA')}\n```", "errors": []}
+    result = await validate_snapshot_node(state)
+    output = result["validated_output"]
+
+    assert isinstance(output, AssetSnapshot)
+    assert output.asset == "MA"
 
 
 @pytest.mark.asyncio

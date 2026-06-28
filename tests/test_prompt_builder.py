@@ -2,7 +2,6 @@ import pytest
 
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
-from app.llm.prompts.feature_snapshot_prompt import ASSET_SNAPSHOT_PROMPT
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
 from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
@@ -46,13 +45,17 @@ def test_prompt_injects_asset_type(builder: AssetSnapshotPromptBuilder) -> None:
     assert AssetType.STOCK.value in prompt
 
 
-def test_prompt_does_not_contain_raw_placeholders(builder: AssetSnapshotPromptBuilder) -> None:
+def test_prompt_does_not_contain_raw_placeholders(
+    builder: AssetSnapshotPromptBuilder,
+) -> None:
     prompt = builder.build_prompt("SPY", AssetType.ETF)
     assert "{asset}" not in prompt
     assert "{asset_type}" not in prompt
 
 
-def test_prompt_does_not_raise_on_all_asset_types(builder: AssetSnapshotPromptBuilder) -> None:
+def test_prompt_does_not_raise_on_all_asset_types(
+    builder: AssetSnapshotPromptBuilder,
+) -> None:
     for asset_type in AssetType:
         builder.build_prompt("TEST", asset_type)
 
@@ -60,16 +63,22 @@ def test_prompt_does_not_raise_on_all_asset_types(builder: AssetSnapshotPromptBu
 # ── asset_profile_context injection ──────────────────────────────────────────
 
 
-def test_prompt_without_context_has_no_profile_section(builder: AssetSnapshotPromptBuilder) -> None:
+def test_prompt_without_context_has_fallback_profile_section(
+    builder: AssetSnapshotPromptBuilder,
+) -> None:
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
-    assert "Asset profile context" not in prompt
+    assert "Asset profile context" in prompt
+    assert "Provider: none" in prompt
+    assert "No provider profile was found" in prompt
 
 
 def test_prompt_with_context_includes_profile_section(
     builder: AssetSnapshotPromptBuilder,
     profile_context: AssetProfileContext,
 ) -> None:
-    prompt = builder.build_prompt("NVDA", AssetType.STOCK, asset_profile_context=profile_context)
+    prompt = builder.build_prompt(
+        "NVDA", AssetType.STOCK, asset_profile_context=profile_context
+    )
     assert "Asset profile context" in prompt
 
 
@@ -77,29 +86,36 @@ def test_prompt_with_context_includes_all_fields(
     builder: AssetSnapshotPromptBuilder,
     profile_context: AssetProfileContext,
 ) -> None:
-    prompt = builder.build_prompt("NVDA", AssetType.STOCK, asset_profile_context=profile_context)
+    prompt = builder.build_prompt(
+        "NVDA", AssetType.STOCK, asset_profile_context=profile_context
+    )
     assert "NVIDIA Corporation" in prompt
     assert "Technology" in prompt
     assert "Semiconductors" in prompt
+    assert "Provider: test" in prompt
+    assert "Fetched at:" in prompt
     assert "NASDAQ" in prompt
     assert "USD" in prompt
     assert "USA" in prompt
     assert "NVIDIA designs GPUs" in prompt
 
 
-def test_prompt_with_none_context_equals_prompt_without_context(
+def test_prompt_with_none_context_uses_fallback(
     builder: AssetSnapshotPromptBuilder,
 ) -> None:
-    without = builder.build_prompt("NVDA", AssetType.STOCK)
-    with_none = builder.build_prompt("NVDA", AssetType.STOCK, asset_profile_context=None)
-    assert without == with_none
+    with_none = builder.build_prompt(
+        "NVDA", AssetType.STOCK, asset_profile_context=None
+    )
+    assert "Provider: none" in with_none
 
 
 def test_profile_section_appended_after_main_prompt(
     builder: AssetSnapshotPromptBuilder,
     profile_context: AssetProfileContext,
 ) -> None:
-    prompt = builder.build_prompt("NVDA", AssetType.STOCK, asset_profile_context=profile_context)
+    prompt = builder.build_prompt(
+        "NVDA", AssetType.STOCK, asset_profile_context=profile_context
+    )
     main_prompt_end = prompt.index("data_scope")
     profile_start = prompt.index("Asset profile context")
     assert profile_start > main_prompt_end

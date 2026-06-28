@@ -3,7 +3,7 @@ from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
 
-class AssetType(str, Enum):
+class AssetType(str, Enum):  # noqa: UP042
     """Supported asset types."""
 
     STOCK = "stock"
@@ -30,7 +30,9 @@ class AssetSnapshotRequest(BaseModel):
         ...,
         min_length=1,
         max_length=32,
-        description="Asset ticker, symbol, or identifier. Examples: NVDA, EUR/USD, GOLD, SPY.",
+        description=(
+            "Asset ticker, symbol, or identifier. Examples: NVDA, EUR/USD, GOLD, SPY."
+        ),
         examples=["NVDA"],
     )
     asset_type: AssetType = Field(

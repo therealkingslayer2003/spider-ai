@@ -1,11 +1,19 @@
+from datetime import timedelta
+from functools import cache
+
 from fastapi import Depends
 
 from app.agents.asset_snapshot.runner import AssetSnapshotGraphRunner
+from app.core.config import get_settings
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
+from app.market_data.cache import InMemoryTTLAssetProfileCache
+from app.market_data.yfinance_provider import YFinanceMarketDataProvider
 from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.chat_service import ChatService
-from app.tools.asset_snapshot.stable_asset_profile_search import StableAssetProfileSearchTool
+from app.tools.asset_snapshot.stable_asset_profile_search import (
+    StableAssetProfileSearchTool,
+)
 
 
 def get_ollama_client() -> OllamaChatClient:
@@ -16,8 +24,14 @@ def get_prompt_builder() -> AssetSnapshotPromptBuilder:
     return AssetSnapshotPromptBuilder()
 
 
+@cache
 def get_profile_tool() -> StableAssetProfileSearchTool:
-    return StableAssetProfileSearchTool()
+    settings = get_settings()
+    cache = InMemoryTTLAssetProfileCache(
+        ttl=timedelta(seconds=settings.asset_profile_cache_ttl_seconds),
+    )
+    provider = YFinanceMarketDataProvider(cache=cache)
+    return StableAssetProfileSearchTool(market_data_provider=provider)
 
 
 def get_graph_runner(

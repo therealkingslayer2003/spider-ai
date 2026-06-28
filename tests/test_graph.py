@@ -4,6 +4,7 @@ Integration tests for the compiled LangGraph.
 Graph tests test the *wiring*: node order, state flow, and final output.
 We mock all external I/O (LLM, tools) — no real network calls.
 """
+
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,7 +17,6 @@ from app.domain.schemas.asset_snapshot import (
     AssetSnapshotRequest,
     AssetType,
 )
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,16 +44,18 @@ def make_profile(asset: str = "NVDA") -> AssetProfileContext:
 
 
 def llm_response(asset: str = "NVDA") -> str:
-    return json.dumps({
-        "asset": asset,
-        "asset_type": "stock",
-        "summary": "GPU manufacturer.",
-        "market_context": "Semiconductor sector.",
-        "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-        "structural_drivers": ["AI demand"],
-        "structural_risks": ["supply chain"],
-        "data_scope": "static_asset_profile",
-    })
+    return json.dumps(
+        {
+            "asset": asset,
+            "asset_type": "stock",
+            "summary": "GPU manufacturer.",
+            "market_context": "Semiconductor sector.",
+            "business_or_asset_profile": "Designs GPUs for gaming and AI.",
+            "structural_drivers": ["AI demand"],
+            "structural_risks": ["supply chain"],
+            "data_scope": "static_asset_profile",
+        }
+    )
 
 
 @pytest.fixture
@@ -169,3 +171,18 @@ async def test_graph_records_error_when_llm_returns_invalid_json(
 
     assert final_state["validated_output"] is None
     assert final_state["errors"]
+
+
+@pytest.mark.asyncio
+async def test_graph_continues_when_profile_tool_fails(
+    mock_profile_tool: AsyncMock,
+    mock_prompt_builder: MagicMock,
+    mock_llm: AsyncMock,
+) -> None:
+    mock_profile_tool.run.side_effect = RuntimeError("provider unavailable")
+    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+
+    final_state = await graph.ainvoke({"request": make_request(), "errors": []})
+
+    assert isinstance(final_state["validated_output"], AssetSnapshot)
+    assert any("provider unavailable" in e for e in final_state["errors"])

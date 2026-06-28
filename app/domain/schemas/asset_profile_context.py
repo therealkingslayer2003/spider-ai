@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
 
 from app.domain.schemas.asset_snapshot import AssetType
 
@@ -13,4 +15,6 @@ class AssetProfileContext(BaseModel):
     exchange: str | None
     currency: str | None
     country: str | None
-    provider: str | None
+    website: str | None = None
+    provider: str = "unknown"
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

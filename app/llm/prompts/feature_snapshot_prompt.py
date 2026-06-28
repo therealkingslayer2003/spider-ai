@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 ASSET_SNAPSHOT_PROMPT = """
 Your task is to generate a structured asset snapshot.
 

@@ -7,12 +7,19 @@ class Settings(BaseSettings):
     app_name: str = "Spider"
     app_env: str = "local"
     app_debug: bool = True
+    app_pretty_logs: bool = True
+    app_log_flow_steps: bool = True
+    app_log_llm_prompts: bool = False
+    app_log_llm_outputs: bool = False
+    app_log_preview_chars: int = 3000
 
     api_v1_prefix: str = "/api/v1"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "llama3.1:8b"
     ollama_temperature: float = 0.2
+
+    asset_profile_cache_ttl_seconds: int = 60 * 60 * 24
 
     model_config = SettingsConfigDict(
         env_file=".env",

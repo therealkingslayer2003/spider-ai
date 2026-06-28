@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+
 BASE_SYSTEM_PROMPT = """
 You are Spider-AI, an AI asset research copilot.
 

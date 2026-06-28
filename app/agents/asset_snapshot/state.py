@@ -6,8 +6,10 @@ from app.domain.schemas.asset_snapshot import AssetSnapshot, AssetSnapshotReques
 
 class AssetSnapshotState(TypedDict):
     request: AssetSnapshotRequest
+    resolved_asset: str | None
     asset_profile_context: AssetProfileContext | None
     selected_tool_name: str | None
+    generation_prompt: str | None
     raw_llm_output: str | None
     validated_output: AssetSnapshot | None
     errors: list[str]
