@@ -4,15 +4,22 @@ spider-ai — an asset market research copilot for structured asset and market a
 
 ## Current Status
 
-This project is currently at the backend skeleton stage.
+This project is a FastAPI backend for structured asset research workflows. The
+main implemented workflow is Asset Snapshot: it resolves an asset input,
+retrieves normalized profile context from yfinance, and asks a local Ollama LLM
+to synthesize a schema-validated structural snapshot.
 
 ### Implemented
 
 - FastAPI backend
 - Local LLM integration through Ollama
 - LangChain `ChatOllama` client
-- LangGraph agent pipeline (planner → profile tool → LLM generation → validation)
-- Asset snapshot endpoint — structured `AssetSnapshot` output with profile, drivers, and risks (mocked data for now)
+- LangGraph Asset Snapshot workflow
+- Optional ambiguous asset resolver before tool execution
+- yfinance-backed asset profile provider for stocks and ETFs
+- In-memory TTL cache for asset profile context
+- Structured `AssetSnapshot` output with profile, drivers, and risks
+- Rich terminal debug logs for workflow and LLM tracing
 - Basic chat endpoint
 - Health endpoint
 - LangSmith observability integration
@@ -37,13 +44,13 @@ This project is currently at the backend skeleton stage.
 4. Install dependencies:
 
    ```bash
-   pip install -e .
+   uv sync
    ```
 
 5. Run API:
 
    ```bash
-   uvicorn app.main:app --reload
+   uv run uvicorn app.main:app --reload
    ```
 
 6. Open docs: http://localhost:8000/docs
@@ -77,7 +84,14 @@ docker compose up --build
 ## Run Tests
 
 ```bash
-pytest
+uv run pytest
+```
+
+Live LLM resolver tests are opt-in because they call the configured Ollama
+model:
+
+```bash
+RUN_LIVE_LLM_RESOLVER_TESTS=true uv run pytest tests/test_asset_resolver_live.py -m live_llm -vv
 ```
 
 ## Check Health
@@ -97,6 +111,11 @@ curl -X POST http://localhost:8000/api/v1/asset/snapshot \
   }'
 ```
 
+The Asset Snapshot workflow currently supports yfinance profile context for
+`stock` and `etf` assets. If no provider profile is found, the graph still asks
+the LLM to generate a schema-valid structural snapshot with explicit fallback
+context.
+
 ## Test Chat
 
 ```bash
@@ -114,27 +133,24 @@ curl -X POST http://localhost:8000/api/v1/chat \
 app/
   main.py               # FastAPI app factory
   api/v1/               # HTTP layer — routers and endpoints
+  agents/               # LangGraph workflow state, graph, and nodes
   core/                 # Config, logging, exceptions
   domain/schemas/       # Pydantic request/response models
   llm/                  # LLM provider abstractions
+  market_data/          # yfinance provider and profile cache
   services/             # Business logic
-  tools/                # Future: tool abstractions
-  retrieval/            # Future: RAG
-  workflows/            # Future: workflow orchestration
+  tools/                # Workflow tools
 
 tests/                  # pytest test suite
 ```
 
 ## Roadmap
 
-- Structured outputs
-- Market data tools
-- RAG
+- Broader market data coverage
+- Better ambiguous asset resolution
 - Evidence-aware answers
 - Evaluation
-- Observability
-- Workflow orchestration
-- Agent layer
+- Additional workflow-level observability
 
 ---
 
