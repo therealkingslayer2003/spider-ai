@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends
 from app.core.config import Settings, get_settings
 from app.domain.schemas.health import HealthResponse
 
-
 router = APIRouter()
 
 

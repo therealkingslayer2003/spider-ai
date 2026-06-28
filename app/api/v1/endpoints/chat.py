@@ -4,7 +4,6 @@ from app.api.dependencies import get_chat_service
 from app.domain.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import ChatService
 
-
 router = APIRouter()
 
 

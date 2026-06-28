@@ -22,7 +22,7 @@ def setup_hooks():
 
     # Detect OS
     is_windows = sys.platform == "win32"
-    
+
     hook_name = "pre-push"
     source = repo_root / "scripts" / "pre-push"
     dest = hooks_dir / hook_name
