@@ -48,6 +48,24 @@ This project is currently at the backend skeleton stage.
 
 6. Open docs: http://localhost:8000/docs
 
+## Local Debug Logs
+
+Pretty terminal logs are enabled by default in local debug mode.
+
+Use these `.env` flags to control workflow tracing:
+
+```bash
+APP_PRETTY_LOGS=true
+APP_LOG_FLOW_STEPS=true
+APP_LOG_LLM_PROMPTS=false
+APP_LOG_LLM_OUTPUTS=false
+APP_LOG_PREVIEW_CHARS=600
+```
+
+Turn on `APP_LOG_LLM_PROMPTS=true` or `APP_LOG_LLM_OUTPUTS=true` when you need
+to inspect the exact prompt/output preview that went through Ollama. Keep them
+off for normal local runs if the payload may contain sensitive user input.
+
 ## Run with Docker Compose
 
 ```bash

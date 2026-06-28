@@ -24,6 +24,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "rich" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "yfinance" },
 ]
@@ -47,6 +48,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pydantic-settings", specifier = ">=2.4.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "rich" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
     { name = "yfinance", specifier = ">=1.4.1" },
 ]
