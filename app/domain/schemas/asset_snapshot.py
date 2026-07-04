@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -20,9 +21,45 @@ class AssetSnapshot(BaseModel):
     summary: str
     market_context: str
     business_or_asset_profile: str
-    structural_drivers: list[str]
-    structural_risks: list[str]
+    competitive_landscape: list["CompetitivePeer"]
+    structural_drivers: list["StructuralDriver"]
+    structural_risks: list["StructuralRisk"]
     data_scope: str
+
+
+class CompetitivePeer(BaseModel):
+    ticker: str | None = None
+    name: str
+    competition_area: str
+    why_competitor: str
+    why_it_matters: str
+
+
+class StructuralDriver(BaseModel):
+    title: str
+    explanation: str
+    materiality: Literal["low", "medium", "high"]
+
+    @field_validator("materiality", mode="before")
+    @classmethod
+    def normalize_materiality(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+
+class StructuralRisk(BaseModel):
+    title: str
+    explanation: str
+    materiality: Literal["low", "medium", "high"]
+    related_competitors: list[str] = Field(default_factory=list)
+
+    @field_validator("materiality", mode="before")
+    @classmethod
+    def normalize_materiality(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class AssetSnapshotRequest(BaseModel):

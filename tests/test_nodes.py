@@ -13,8 +13,10 @@ import pytest
 from app.agents.asset_snapshot.nodes import (
     ambiguous_asset_resolution_node,
     asset_profile_tool_node,
+    company_peers_tool_node,
     generate_snapshot_node,
     planner_node,
+    sector_context_tool_node,
     validate_snapshot_node,
 )
 from app.domain.schemas.asset_profile_context import AssetProfileContext
@@ -22,6 +24,13 @@ from app.domain.schemas.asset_snapshot import (
     AssetSnapshot,
     AssetSnapshotRequest,
     AssetType,
+    CompetitivePeer,
+)
+from app.domain.schemas.company_peer_context import CompanyPeerContext
+from app.domain.schemas.sector_context import (
+    SectorContext,
+    SectorDriverContext,
+    SectorRiskContext,
 )
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -57,10 +66,74 @@ def snapshot_json(asset: str = "NVDA") -> str:
             "summary": "GPU manufacturer.",
             "market_context": "Semiconductor sector.",
             "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-            "structural_drivers": ["AI demand"],
-            "structural_risks": ["supply chain"],
-            "data_scope": "static_asset_profile",
+            "competitive_landscape": [
+                {
+                    "ticker": "AMD",
+                    "name": "Advanced Micro Devices",
+                    "competition_area": "AI accelerators",
+                    "why_competitor": "AMD competes in GPUs and accelerators.",
+                    "why_it_matters": "It can pressure Nvidia pricing and share.",
+                }
+            ],
+            "structural_drivers": [
+                {
+                    "title": "AI demand",
+                    "explanation": "Data center AI demand supports GPU revenue.",
+                    "materiality": "high",
+                }
+            ],
+            "structural_risks": [
+                {
+                    "title": "Supply chain concentration",
+                    "explanation": "Foundry constraints can affect availability.",
+                    "materiality": "high",
+                    "related_competitors": ["AMD"],
+                }
+            ],
+            "data_scope": "provider_profile_with_static_sector_and_peer_context",
         }
+    )
+
+
+def make_sector_context() -> SectorContext:
+    return SectorContext(
+        sector="Technology",
+        industry="Semiconductors / AI Hardware",
+        business_model_pattern="AI hardware platform economics.",
+        market_context="AI chips depend on data center capex.",
+        common_drivers=[
+            SectorDriverContext(
+                title="AI accelerator demand",
+                explanation="AI workloads increase accelerator demand.",
+                materiality="high",
+            )
+        ],
+        common_risks=[
+            SectorRiskContext(
+                title="Export controls",
+                explanation="Restrictions can limit advanced chip sales.",
+                materiality="high",
+            )
+        ],
+        competition_dimensions=["AI accelerators"],
+        provider="test",
+    )
+
+
+def make_peer_context(asset: str = "NVDA") -> CompanyPeerContext:
+    return CompanyPeerContext(
+        asset=asset,
+        peers=[
+            CompetitivePeer(
+                ticker="AMD",
+                name="Advanced Micro Devices",
+                competition_area="AI accelerators",
+                why_competitor="AMD competes with GPUs and accelerators.",
+                why_it_matters="It pressures pricing and customer choice.",
+            )
+        ],
+        provider="test",
+        confidence="high",
     )
 
 
@@ -173,6 +246,91 @@ async def test_asset_profile_tool_handles_tool_exception() -> None:
     assert any("network error" in e for e in result["errors"])
 
 
+# ── sector_context_tool_node ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sector_context_tool_returns_context_on_success() -> None:
+    mock_tool = AsyncMock()
+    sector_context = make_sector_context()
+    mock_tool.run.return_value = sector_context
+    profile = make_profile()
+
+    state = {"asset_profile_context": profile, "errors": []}
+    result = await sector_context_tool_node(state, mock_tool)
+
+    assert result["sector_context"] == sector_context
+    mock_tool.run.assert_awaited_once_with(asset_profile_context=profile)
+
+
+@pytest.mark.asyncio
+async def test_sector_context_tool_handles_exception() -> None:
+    mock_tool = AsyncMock()
+    mock_tool.run.side_effect = RuntimeError("sector mapping failed")
+
+    state = {"asset_profile_context": make_profile(), "errors": []}
+    result = await sector_context_tool_node(state, mock_tool)
+
+    assert result["sector_context"] is None
+    assert any("sector mapping failed" in e for e in result["errors"])
+
+
+# ── company_peers_tool_node ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_company_peers_tool_returns_context_on_success() -> None:
+    mock_tool = AsyncMock()
+    peer_context = make_peer_context()
+    mock_tool.run.return_value = peer_context
+    profile = make_profile()
+
+    state = {
+        "request": make_request(),
+        "asset_profile_context": profile,
+        "errors": [],
+    }
+    result = await company_peers_tool_node(state, mock_tool)
+
+    assert result["company_peers_context"] == peer_context
+    mock_tool.run.assert_awaited_once_with(
+        asset="NVDA",
+        asset_profile_context=profile,
+    )
+
+
+@pytest.mark.asyncio
+async def test_company_peers_tool_uses_resolved_asset() -> None:
+    mock_tool = AsyncMock()
+    mock_tool.run.return_value = make_peer_context("AAPL")
+    profile = make_profile("AAPL")
+
+    state = {
+        "request": make_request(asset="Apple"),
+        "resolved_asset": "AAPL",
+        "asset_profile_context": profile,
+        "errors": [],
+    }
+    await company_peers_tool_node(state, mock_tool)
+
+    mock_tool.run.assert_awaited_once_with(
+        asset="AAPL",
+        asset_profile_context=profile,
+    )
+
+
+@pytest.mark.asyncio
+async def test_company_peers_tool_handles_exception() -> None:
+    mock_tool = AsyncMock()
+    mock_tool.run.side_effect = RuntimeError("peer mapping failed")
+
+    state = {"request": make_request(), "asset_profile_context": None, "errors": []}
+    result = await company_peers_tool_node(state, mock_tool)
+
+    assert result["company_peers_context"] is None
+    assert any("peer mapping failed" in e for e in result["errors"])
+
+
 # ── generate_snapshot_node ────────────────────────────────────────────────────
 
 
@@ -183,7 +341,13 @@ async def test_generate_snapshot_sets_raw_llm_output() -> None:
     mock_builder = MagicMock()
     mock_builder.build_prompt.return_value = "prompt"
 
-    state = {"request": make_request(), "asset_profile_context": None, "errors": []}
+    state = {
+        "request": make_request(),
+        "asset_profile_context": None,
+        "company_peers_context": None,
+        "sector_context": None,
+        "errors": [],
+    }
     result = await generate_snapshot_node(state, mock_llm, mock_builder)
     assert result["raw_llm_output"] == snapshot_json()
 
@@ -195,14 +359,24 @@ async def test_generate_snapshot_passes_profile_context_to_builder() -> None:
     mock_builder = MagicMock()
     mock_builder.build_prompt.return_value = "prompt"
     profile = make_profile()
+    sector_context = make_sector_context()
+    peer_context = make_peer_context()
 
-    state = {"request": make_request(), "asset_profile_context": profile, "errors": []}
+    state = {
+        "request": make_request(),
+        "asset_profile_context": profile,
+        "sector_context": sector_context,
+        "company_peers_context": peer_context,
+        "errors": [],
+    }
     await generate_snapshot_node(state, mock_llm, mock_builder)
 
     mock_builder.build_prompt.assert_called_once_with(
         asset="NVDA",
         asset_type=AssetType.STOCK,
         asset_profile_context=profile,
+        company_peers_context=peer_context,
+        sector_context=sector_context,
     )
 
 
@@ -289,7 +463,13 @@ async def test_generate_snapshot_records_error_on_llm_failure() -> None:
     mock_builder = MagicMock()
     mock_builder.build_prompt.return_value = "prompt"
 
-    state = {"request": make_request(), "asset_profile_context": None, "errors": []}
+    state = {
+        "request": make_request(),
+        "asset_profile_context": None,
+        "company_peers_context": None,
+        "sector_context": None,
+        "errors": [],
+    }
     result = await generate_snapshot_node(state, mock_llm, mock_builder)
     assert result["raw_llm_output"] is None
     assert any("timeout" in e for e in result["errors"])
@@ -321,9 +501,25 @@ async def test_validate_snapshot_fields_are_correct() -> None:
     result = await validate_snapshot_node(state)
     output = result["validated_output"]
     assert output.asset == "MA"
-    assert output.structural_drivers == ["AI demand"]
-    assert output.structural_risks == ["supply chain"]
+    assert output.structural_drivers[0].title == "AI demand"
+    assert output.structural_risks[0].title == "Supply chain concentration"
+    assert output.structural_risks[0].materiality == "high"
     assert output.business_or_asset_profile == "Designs GPUs for gaming and AI."
+
+
+@pytest.mark.asyncio
+async def test_validate_snapshot_accepts_uppercase_materiality() -> None:
+    payload = json.loads(snapshot_json("GOOGL"))
+    payload["structural_drivers"][0]["materiality"] = "High"
+    payload["structural_risks"][0]["materiality"] = "Medium"
+    state = {"raw_llm_output": json.dumps(payload), "errors": []}
+
+    result = await validate_snapshot_node(state)
+    output = result["validated_output"]
+
+    assert isinstance(output, AssetSnapshot)
+    assert output.structural_drivers[0].materiality == "high"
+    assert output.structural_risks[0].materiality == "medium"
 
 
 @pytest.mark.asyncio

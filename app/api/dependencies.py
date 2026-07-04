@@ -11,6 +11,8 @@ from app.market_data.cache import InMemoryTTLAssetProfileCache
 from app.market_data.yfinance_provider import YFinanceMarketDataProvider
 from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.chat_service import ChatService
+from app.tools.asset_snapshot.company_peers import CompanyPeersTool
+from app.tools.asset_snapshot.sector_context import SectorContextTool
 from app.tools.asset_snapshot.stable_asset_profile_search import (
     StableAssetProfileSearchTool,
 )
@@ -22,6 +24,14 @@ def get_ollama_client() -> OllamaChatClient:
 
 def get_prompt_builder() -> AssetSnapshotPromptBuilder:
     return AssetSnapshotPromptBuilder()
+
+
+def get_sector_context_tool() -> SectorContextTool:
+    return SectorContextTool()
+
+
+def get_company_peers_tool() -> CompanyPeersTool:
+    return CompanyPeersTool()
 
 
 @cache
@@ -36,11 +46,15 @@ def get_profile_tool() -> StableAssetProfileSearchTool:
 
 def get_graph_runner(
     profile_tool: StableAssetProfileSearchTool = Depends(get_profile_tool),
+    sector_context_tool: SectorContextTool = Depends(get_sector_context_tool),
+    company_peers_tool: CompanyPeersTool = Depends(get_company_peers_tool),
     prompt_builder: AssetSnapshotPromptBuilder = Depends(get_prompt_builder),
     llm_client: OllamaChatClient = Depends(get_ollama_client),
 ) -> AssetSnapshotGraphRunner:
     return AssetSnapshotGraphRunner(
         profile_tool=profile_tool,
+        sector_context_tool=sector_context_tool,
+        company_peers_tool=company_peers_tool,
         prompt_builder=prompt_builder,
         llm_client=llm_client,
     )

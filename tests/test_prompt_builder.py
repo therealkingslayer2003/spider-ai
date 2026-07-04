@@ -1,7 +1,13 @@
 import pytest
 
 from app.domain.schemas.asset_profile_context import AssetProfileContext
-from app.domain.schemas.asset_snapshot import AssetType
+from app.domain.schemas.asset_snapshot import AssetType, CompetitivePeer
+from app.domain.schemas.company_peer_context import CompanyPeerContext
+from app.domain.schemas.sector_context import (
+    SectorContext,
+    SectorDriverContext,
+    SectorRiskContext,
+)
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
 from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
@@ -24,6 +30,50 @@ def profile_context() -> AssetProfileContext:
         currency="USD",
         country="USA",
         provider="test",
+    )
+
+
+@pytest.fixture
+def sector_context() -> SectorContext:
+    return SectorContext(
+        sector="Technology",
+        industry="Semiconductors / AI Hardware",
+        business_model_pattern="AI hardware platform economics.",
+        market_context="AI chips depend on data center capex.",
+        common_drivers=[
+            SectorDriverContext(
+                title="AI accelerator demand",
+                explanation="AI workloads increase accelerator demand.",
+                materiality="high",
+            )
+        ],
+        common_risks=[
+            SectorRiskContext(
+                title="Export controls",
+                explanation="Restrictions can limit advanced chip sales.",
+                materiality="high",
+            )
+        ],
+        competition_dimensions=["AI accelerators", "custom ASICs"],
+        provider="test",
+    )
+
+
+@pytest.fixture
+def peer_context() -> CompanyPeerContext:
+    return CompanyPeerContext(
+        asset="NVDA",
+        peers=[
+            CompetitivePeer(
+                ticker="AMD",
+                name="Advanced Micro Devices",
+                competition_area="AI accelerators",
+                why_competitor="AMD competes in GPUs.",
+                why_it_matters="It pressures pricing and share.",
+            )
+        ],
+        provider="test",
+        confidence="high",
     )
 
 
@@ -67,7 +117,7 @@ def test_prompt_without_context_has_fallback_profile_section(
     builder: AssetSnapshotPromptBuilder,
 ) -> None:
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
-    assert "Asset profile context" in prompt
+    assert "1. Provider company profile" in prompt
     assert "Provider: none" in prompt
     assert "No provider profile was found" in prompt
 
@@ -79,7 +129,7 @@ def test_prompt_with_context_includes_profile_section(
     prompt = builder.build_prompt(
         "NVDA", AssetType.STOCK, asset_profile_context=profile_context
     )
-    assert "Asset profile context" in prompt
+    assert "1. Provider company profile" in prompt
 
 
 def test_prompt_with_context_includes_all_fields(
@@ -117,5 +167,71 @@ def test_profile_section_appended_after_main_prompt(
         "NVDA", AssetType.STOCK, asset_profile_context=profile_context
     )
     main_prompt_end = prompt.index("data_scope")
-    profile_start = prompt.index("Asset profile context")
+    profile_start = prompt.index("1. Provider company profile")
     assert profile_start > main_prompt_end
+
+
+def test_prompt_with_sector_context_includes_sector_section(
+    builder: AssetSnapshotPromptBuilder,
+    sector_context: SectorContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        sector_context=sector_context,
+    )
+
+    assert "2. Sector / industry context" in prompt
+    assert "AI accelerator demand" in prompt
+    assert "Export controls" in prompt
+    assert "custom ASICs" in prompt
+
+
+def test_prompt_with_peer_context_includes_competitor_names_and_tickers(
+    builder: AssetSnapshotPromptBuilder,
+    peer_context: CompanyPeerContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        company_peers_context=peer_context,
+    )
+
+    assert "3. Competitive landscape context" in prompt
+    assert "Advanced Micro Devices" in prompt
+    assert "AMD" in prompt
+    assert "AI accelerators" in prompt
+
+
+def test_prompt_includes_v15_json_schema(builder: AssetSnapshotPromptBuilder) -> None:
+    prompt = builder.build_prompt("NVDA", AssetType.STOCK)
+
+    assert "competitive_landscape" in prompt
+    assert "related_competitors" in prompt
+    assert '"materiality": "low | medium | high"' in prompt
+
+
+def test_prompt_instructs_model_to_avoid_vague_risks(
+    builder: AssetSnapshotPromptBuilder,
+) -> None:
+    prompt = builder.build_prompt("NVDA", AssetType.STOCK)
+
+    assert "Avoid vague risks" in prompt
+    assert "Every structural risk must explain" in prompt
+
+
+def test_prompt_data_scope_reflects_available_contexts(
+    builder: AssetSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    sector_context: SectorContext,
+    peer_context: CompanyPeerContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        sector_context=sector_context,
+        company_peers_context=peer_context,
+    )
+
+    assert "provider_profile_with_static_sector_and_peer_context" in prompt

@@ -16,6 +16,13 @@ from app.domain.schemas.asset_snapshot import (
     AssetSnapshot,
     AssetSnapshotRequest,
     AssetType,
+    CompetitivePeer,
+)
+from app.domain.schemas.company_peer_context import CompanyPeerContext
+from app.domain.schemas.sector_context import (
+    SectorContext,
+    SectorDriverContext,
+    SectorRiskContext,
 )
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -51,10 +58,74 @@ def llm_response(asset: str = "NVDA") -> str:
             "summary": "GPU manufacturer.",
             "market_context": "Semiconductor sector.",
             "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-            "structural_drivers": ["AI demand"],
-            "structural_risks": ["supply chain"],
-            "data_scope": "static_asset_profile",
+            "competitive_landscape": [
+                {
+                    "ticker": "AMD",
+                    "name": "Advanced Micro Devices",
+                    "competition_area": "AI accelerators",
+                    "why_competitor": "AMD competes in GPUs.",
+                    "why_it_matters": "It pressures pricing and share.",
+                }
+            ],
+            "structural_drivers": [
+                {
+                    "title": "AI demand",
+                    "explanation": "AI workloads support data center GPU demand.",
+                    "materiality": "high",
+                }
+            ],
+            "structural_risks": [
+                {
+                    "title": "Supply chain concentration",
+                    "explanation": "Foundry constraints can limit availability.",
+                    "materiality": "high",
+                    "related_competitors": ["AMD"],
+                }
+            ],
+            "data_scope": "provider_profile_with_static_sector_and_peer_context",
         }
+    )
+
+
+def make_sector_context() -> SectorContext:
+    return SectorContext(
+        sector="Technology",
+        industry="Semiconductors / AI Hardware",
+        business_model_pattern="AI hardware platform economics.",
+        market_context="Semiconductor sector.",
+        common_drivers=[
+            SectorDriverContext(
+                title="AI accelerator demand",
+                explanation="AI workloads increase accelerator demand.",
+                materiality="high",
+            )
+        ],
+        common_risks=[
+            SectorRiskContext(
+                title="Export controls",
+                explanation="Restrictions can limit advanced chip sales.",
+                materiality="high",
+            )
+        ],
+        competition_dimensions=["AI accelerators"],
+        provider="test",
+    )
+
+
+def make_peer_context(asset: str = "NVDA") -> CompanyPeerContext:
+    return CompanyPeerContext(
+        asset=asset,
+        peers=[
+            CompetitivePeer(
+                ticker="AMD",
+                name="Advanced Micro Devices",
+                competition_area="AI accelerators",
+                why_competitor="AMD competes in GPUs.",
+                why_it_matters="It pressures pricing and share.",
+            )
+        ],
+        provider="test",
+        confidence="high",
     )
 
 
@@ -62,6 +133,20 @@ def llm_response(asset: str = "NVDA") -> str:
 def mock_profile_tool() -> AsyncMock:
     tool = AsyncMock()
     tool.run.return_value = make_profile()
+    return tool
+
+
+@pytest.fixture
+def mock_sector_context_tool() -> AsyncMock:
+    tool = AsyncMock()
+    tool.run.return_value = make_sector_context()
+    return tool
+
+
+@pytest.fixture
+def mock_company_peers_tool() -> AsyncMock:
+    tool = AsyncMock()
+    tool.run.return_value = make_peer_context()
     return tool
 
 
@@ -85,10 +170,18 @@ def mock_llm() -> AsyncMock:
 @pytest.mark.asyncio
 async def test_graph_produces_asset_snapshot(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     final_state = await graph.ainvoke({"request": make_request(), "errors": []})
 
@@ -98,42 +191,73 @@ async def test_graph_produces_asset_snapshot(
 @pytest.mark.asyncio
 async def test_graph_snapshot_has_all_fields(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     final_state = await graph.ainvoke({"request": make_request(), "errors": []})
     output = final_state["validated_output"]
 
-    assert output.structural_drivers == ["AI demand"]
-    assert output.structural_risks == ["supply chain"]
+    assert output.competitive_landscape[0].ticker == "AMD"
+    assert output.structural_drivers[0].title == "AI demand"
+    assert output.structural_risks[0].title == "Supply chain concentration"
     assert output.business_or_asset_profile == "Designs GPUs for gaming and AI."
 
 
 @pytest.mark.asyncio
 async def test_graph_passes_profile_context_to_prompt_builder(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
     profile = make_profile()
     mock_profile_tool.run.return_value = profile
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    sector_context = make_sector_context()
+    peer_context = make_peer_context()
+    mock_sector_context_tool.run.return_value = sector_context
+    mock_company_peers_tool.run.return_value = peer_context
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     await graph.ainvoke({"request": make_request(), "errors": []})
 
     call_kwargs = mock_prompt_builder.build_prompt.call_args.kwargs
     assert call_kwargs["asset_profile_context"] == profile
+    assert call_kwargs["sector_context"] == sector_context
+    assert call_kwargs["company_peers_context"] == peer_context
 
 
 @pytest.mark.asyncio
 async def test_graph_has_no_errors_on_happy_path(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     final_state = await graph.ainvoke({"request": make_request(), "errors": []})
 
@@ -146,11 +270,19 @@ async def test_graph_has_no_errors_on_happy_path(
 @pytest.mark.asyncio
 async def test_graph_records_error_when_llm_fails(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
     mock_llm.generate.side_effect = RuntimeError("ollama unreachable")
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     final_state = await graph.ainvoke({"request": make_request(), "errors": []})
 
@@ -161,11 +293,19 @@ async def test_graph_records_error_when_llm_fails(
 @pytest.mark.asyncio
 async def test_graph_records_error_when_llm_returns_invalid_json(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
     mock_llm.generate.return_value = "not valid json"
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     final_state = await graph.ainvoke({"request": make_request(), "errors": []})
 
@@ -176,13 +316,93 @@ async def test_graph_records_error_when_llm_returns_invalid_json(
 @pytest.mark.asyncio
 async def test_graph_continues_when_profile_tool_fails(
     mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
     mock_profile_tool.run.side_effect = RuntimeError("provider unavailable")
-    graph = build_asset_snapshot_graph(mock_profile_tool, mock_prompt_builder, mock_llm)
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
 
     final_state = await graph.ainvoke({"request": make_request(), "errors": []})
 
     assert isinstance(final_state["validated_output"], AssetSnapshot)
     assert any("provider unavailable" in e for e in final_state["errors"])
+
+
+@pytest.mark.asyncio
+async def test_graph_continues_when_peer_tool_returns_empty_peers(
+    mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
+    mock_prompt_builder: MagicMock,
+    mock_llm: AsyncMock,
+) -> None:
+    mock_company_peers_tool.run.return_value = CompanyPeerContext(
+        asset="NVDA",
+        peers=[],
+        provider="test",
+        confidence="low",
+    )
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
+
+    final_state = await graph.ainvoke({"request": make_request(), "errors": []})
+
+    assert isinstance(final_state["validated_output"], AssetSnapshot)
+
+
+@pytest.mark.asyncio
+async def test_graph_continues_when_sector_tool_fails(
+    mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
+    mock_prompt_builder: MagicMock,
+    mock_llm: AsyncMock,
+) -> None:
+    mock_sector_context_tool.run.side_effect = RuntimeError("sector unavailable")
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
+
+    final_state = await graph.ainvoke({"request": make_request(), "errors": []})
+
+    assert isinstance(final_state["validated_output"], AssetSnapshot)
+    assert any("sector unavailable" in e for e in final_state["errors"])
+
+
+@pytest.mark.asyncio
+async def test_graph_continues_when_profile_tool_returns_none(
+    mock_profile_tool: AsyncMock,
+    mock_sector_context_tool: AsyncMock,
+    mock_company_peers_tool: AsyncMock,
+    mock_prompt_builder: MagicMock,
+    mock_llm: AsyncMock,
+) -> None:
+    mock_profile_tool.run.return_value = None
+    graph = build_asset_snapshot_graph(
+        mock_profile_tool,
+        mock_sector_context_tool,
+        mock_company_peers_tool,
+        mock_prompt_builder,
+        mock_llm,
+    )
+
+    final_state = await graph.ainvoke({"request": make_request(), "errors": []})
+
+    assert isinstance(final_state["validated_output"], AssetSnapshot)

@@ -7,7 +7,11 @@ from app.agents.asset_snapshot.asset_resolver import (
     should_resolve_ambiguous_asset,
 )
 from app.agents.asset_snapshot.state import AssetSnapshotState
-from app.agents.asset_snapshot.tools import AssetSnapshotTool
+from app.agents.asset_snapshot.tools import (
+    AssetSnapshotTool,
+    CompanyPeersToolProtocol,
+    SectorContextToolProtocol,
+)
 from app.core.config import get_settings
 from app.domain.schemas.asset_snapshot import AssetSnapshot, AssetType
 from app.llm.base import BaseChatModelClient
@@ -178,6 +182,74 @@ async def asset_profile_tool_node(
         }
 
 
+async def sector_context_tool_node(
+    state: AssetSnapshotState,
+    tool: SectorContextToolProtocol,
+) -> AssetSnapshotState:
+    settings = get_settings()
+
+    try:
+        if settings.app_log_flow_steps:
+            logger.info(
+                "sector_context_tool.start has_profile=%s",
+                state.get("asset_profile_context") is not None,
+            )
+
+        sector_context = await tool.run(
+            asset_profile_context=state.get("asset_profile_context"),
+        )
+
+        if settings.app_log_flow_steps:
+            logger.info(
+                "sector_context_tool.end provider=%s sector=%s industry=%s",
+                sector_context.provider,
+                sector_context.sector,
+                sector_context.industry,
+            )
+
+        return {"sector_context": sector_context}
+    except Exception as exc:
+        logger.exception("sector_context_tool.failed")
+        return {
+            "sector_context": None,
+            "errors": state.get("errors", []) + [f"sector_context_tool_failed: {exc}"],
+        }
+
+
+async def company_peers_tool_node(
+    state: AssetSnapshotState,
+    tool: CompanyPeersToolProtocol,
+) -> AssetSnapshotState:
+    request = state["request"]
+    asset = state.get("resolved_asset") or request.asset
+    settings = get_settings()
+
+    try:
+        if settings.app_log_flow_steps:
+            logger.info("company_peers_tool.start asset=%s", asset)
+
+        company_peers_context = await tool.run(
+            asset=asset,
+            asset_profile_context=state.get("asset_profile_context"),
+        )
+
+        if settings.app_log_flow_steps:
+            logger.info(
+                "company_peers_tool.end provider=%s peers=%s confidence=%s",
+                company_peers_context.provider,
+                len(company_peers_context.peers),
+                company_peers_context.confidence,
+            )
+
+        return {"company_peers_context": company_peers_context}
+    except Exception as exc:
+        logger.exception("company_peers_tool.failed asset=%s", asset)
+        return {
+            "company_peers_context": None,
+            "errors": state.get("errors", []) + [f"company_peers_tool_failed: {exc}"],
+        }
+
+
 async def generate_snapshot_node(
     state: AssetSnapshotState,
     llm: BaseChatModelClient,
@@ -191,6 +263,8 @@ async def generate_snapshot_node(
         asset=asset,
         asset_type=request.asset_type,
         asset_profile_context=state.get("asset_profile_context"),
+        company_peers_context=state.get("company_peers_context"),
+        sector_context=state.get("sector_context"),
     )
 
     if settings.app_log_flow_steps:

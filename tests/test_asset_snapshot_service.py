@@ -6,6 +6,9 @@ from app.domain.schemas.asset_snapshot import (
     AssetSnapshot,
     AssetSnapshotRequest,
     AssetType,
+    CompetitivePeer,
+    StructuralDriver,
+    StructuralRisk,
 )
 from app.services.asset_snapshot_service import AssetSnapshotService
 
@@ -28,9 +31,31 @@ def snapshot() -> AssetSnapshot:
         summary="NVDA is a GPU manufacturer.",
         market_context="Semiconductor sector.",
         business_or_asset_profile="Designs GPUs for gaming and AI.",
-        structural_drivers=["AI demand"],
-        structural_risks=["supply chain"],
-        data_scope="static_asset_profile",
+        competitive_landscape=[
+            CompetitivePeer(
+                ticker="AMD",
+                name="Advanced Micro Devices",
+                competition_area="AI accelerators",
+                why_competitor="AMD competes in GPUs.",
+                why_it_matters="It pressures pricing and share.",
+            )
+        ],
+        structural_drivers=[
+            StructuralDriver(
+                title="AI demand",
+                explanation="AI workloads support GPU demand.",
+                materiality="high",
+            )
+        ],
+        structural_risks=[
+            StructuralRisk(
+                title="Supply chain concentration",
+                explanation="Foundry constraints can affect availability.",
+                materiality="high",
+                related_competitors=["AMD"],
+            )
+        ],
+        data_scope="provider_profile_with_static_sector_and_peer_context",
     )
 
 

@@ -2,9 +2,12 @@ import logging
 
 from app.agents.asset_snapshot.graph import build_asset_snapshot_graph
 from app.core.config import get_settings
+from app.core.exceptions import ServiceError
 from app.domain.schemas.asset_snapshot import AssetSnapshot, AssetSnapshotRequest
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
+from app.tools.asset_snapshot.company_peers import CompanyPeersTool
+from app.tools.asset_snapshot.sector_context import SectorContextTool
 from app.tools.asset_snapshot.stable_asset_profile_search import (
     StableAssetProfileSearchTool,
 )
@@ -16,11 +19,15 @@ class AssetSnapshotGraphRunner:
     def __init__(
         self,
         profile_tool: StableAssetProfileSearchTool,
+        sector_context_tool: SectorContextTool,
+        company_peers_tool: CompanyPeersTool,
         prompt_builder: AssetSnapshotPromptBuilder,
         llm_client: OllamaChatClient,
     ) -> None:
         self.graph = build_asset_snapshot_graph(
             profile_tool=profile_tool,
+            sector_context_tool=sector_context_tool,
+            company_peers_tool=company_peers_tool,
             prompt_builder=prompt_builder,
             llm_client=llm_client,
         )
@@ -45,13 +52,18 @@ class AssetSnapshotGraphRunner:
             }
         )
 
+        validated_output = final_state.get("validated_output")
+        errors = final_state.get("errors", [])
+
         if settings.app_log_flow_steps:
-            validated_output = final_state.get("validated_output")
-            errors = final_state.get("errors", [])
             logger.info(
                 "asset_snapshot.run.end success=%s errors=%s",
                 validated_output is not None,
                 len(errors),
             )
 
-        return final_state["validated_output"]
+        if validated_output is None:
+            logger.error("asset_snapshot.run.failed errors=%s", errors)
+            raise ServiceError("Asset snapshot generation failed. Please try again.")
+
+        return validated_output
