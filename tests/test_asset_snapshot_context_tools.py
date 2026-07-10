@@ -1,9 +1,8 @@
 import pytest
 
+from app.agents.asset_snapshot.tools import CompanyPeersTool, SectorContextTool
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
-from app.tools.asset_snapshot.company_peers import CompanyPeersTool
-from app.tools.asset_snapshot.sector_context import SectorContextTool
 
 
 def make_profile(

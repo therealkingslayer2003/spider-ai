@@ -3,13 +3,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.agents.asset_snapshot.tools import StableAssetProfileSearchTool
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
 from app.market_data.cache import InMemoryTTLAssetProfileCache
 from app.market_data.yfinance_provider import YFinanceMarketDataProvider
-from app.tools.asset_snapshot.stable_asset_profile_search import (
-    StableAssetProfileSearchTool,
-)
 
 
 def raw_yfinance_info() -> dict[str, str]:

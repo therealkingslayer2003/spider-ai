@@ -4,6 +4,11 @@ from functools import cache
 from fastapi import Depends
 
 from app.agents.asset_snapshot.runner import AssetSnapshotGraphRunner
+from app.agents.asset_snapshot.tools import (
+    CompanyPeersTool,
+    SectorContextTool,
+    StableAssetProfileSearchTool,
+)
 from app.core.config import get_settings
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
@@ -11,11 +16,6 @@ from app.market_data.cache import InMemoryTTLAssetProfileCache
 from app.market_data.yfinance_provider import YFinanceMarketDataProvider
 from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.chat_service import ChatService
-from app.tools.asset_snapshot.company_peers import CompanyPeersTool
-from app.tools.asset_snapshot.sector_context import SectorContextTool
-from app.tools.asset_snapshot.stable_asset_profile_search import (
-    StableAssetProfileSearchTool,
-)
 
 
 def get_ollama_client() -> OllamaChatClient:
