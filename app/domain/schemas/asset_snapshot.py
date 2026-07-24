@@ -15,16 +15,19 @@ class AssetType(str, Enum):  # noqa: UP042
     FX = "fx"
 
 
-class AssetSnapshot(BaseModel):
+class BaseAssetSnapshot(BaseModel):
     asset: str
     asset_type: AssetType
     summary: str
-    market_context: str
-    business_or_asset_profile: str
-    competitive_landscape: list["CompetitivePeer"]
     structural_drivers: list["StructuralDriver"]
     structural_risks: list["StructuralRisk"]
     data_scope: str
+
+
+class StockAssetSnapshot(BaseAssetSnapshot):
+    business_or_asset_profile: str
+    market_context: str
+    competitive_landscape: list["CompetitivePeer"]
 
 
 class CompetitivePeer(BaseModel):

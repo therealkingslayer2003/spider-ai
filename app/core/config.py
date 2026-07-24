@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     asset_profile_cache_ttl_seconds: int = 60 * 60 * 24
 
+    fmp_enabled: bool = False
+    fmp_api_key: str | None = None
+    fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    fmp_cache_ttl_seconds: int = 60 * 60 * 24
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

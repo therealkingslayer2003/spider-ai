@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.domain.schemas.asset_snapshot import (
-    AssetSnapshot,
     AssetSnapshotRequest,
     AssetType,
     CompetitivePeer,
+    StockAssetSnapshot,
     StructuralDriver,
     StructuralRisk,
 )
@@ -24,8 +24,8 @@ def snapshot_request() -> AssetSnapshotRequest:
 
 
 @pytest.fixture
-def snapshot() -> AssetSnapshot:
-    return AssetSnapshot(
+def snapshot() -> StockAssetSnapshot:
+    return StockAssetSnapshot(
         asset="NVDA",
         asset_type=AssetType.STOCK,
         summary="NVDA is a GPU manufacturer.",
@@ -55,7 +55,7 @@ def snapshot() -> AssetSnapshot:
                 related_competitors=["AMD"],
             )
         ],
-        data_scope="provider_profile_with_static_sector_and_peer_context",
+        data_scope="profile_with_peers_and_financial_signals",
     )
 
 
@@ -63,7 +63,7 @@ def snapshot() -> AssetSnapshot:
 async def test_get_snapshot_delegates_to_graph_runner(
     mock_graph_runner: AsyncMock,
     snapshot_request: AssetSnapshotRequest,
-    snapshot: AssetSnapshot,
+    snapshot: StockAssetSnapshot,
 ) -> None:
     mock_graph_runner.run.return_value = snapshot
     service = AssetSnapshotService(graph_runner=mock_graph_runner)
@@ -78,7 +78,7 @@ async def test_get_snapshot_delegates_to_graph_runner(
 async def test_get_snapshot_returns_graph_runner_result(
     mock_graph_runner: AsyncMock,
     snapshot_request: AssetSnapshotRequest,
-    snapshot: AssetSnapshot,
+    snapshot: StockAssetSnapshot,
 ) -> None:
     mock_graph_runner.run.return_value = snapshot
     service = AssetSnapshotService(graph_runner=mock_graph_runner)

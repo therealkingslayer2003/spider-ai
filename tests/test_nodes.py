@@ -10,28 +10,24 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.agents.asset_snapshot.nodes import (
+from app.agents.asset_snapshot.stock.nodes import (
     ambiguous_asset_resolution_node,
-    asset_profile_tool_node,
-    company_peers_tool_node,
-    generate_snapshot_node,
-    planner_node,
-    sector_context_tool_node,
-    validate_snapshot_node,
+    company_fundamentals_node,
+    company_peers_node,
+    company_profile_node,
+    generate_stock_snapshot_node,
+    validate_stock_snapshot_node,
 )
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import (
-    AssetSnapshot,
     AssetSnapshotRequest,
     AssetType,
-    CompetitivePeer,
+    StockAssetSnapshot,
 )
-from app.domain.schemas.company_peer_context import CompanyPeerContext
-from app.domain.schemas.sector_context import (
-    SectorContext,
-    SectorDriverContext,
-    SectorRiskContext,
+from app.domain.schemas.company_fundamentals_context import (
+    CompanyFundamentalsContext,
 )
+from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -90,41 +86,16 @@ def snapshot_json(asset: str = "NVDA") -> str:
                     "related_competitors": ["AMD"],
                 }
             ],
-            "data_scope": "provider_profile_with_static_sector_and_peer_context",
+            "data_scope": "profile_with_peers_and_financial_signals",
         }
     )
 
 
-def make_sector_context() -> SectorContext:
-    return SectorContext(
-        sector="Technology",
-        industry="Semiconductors / AI Hardware",
-        business_model_pattern="AI hardware platform economics.",
-        market_context="AI chips depend on data center capex.",
-        common_drivers=[
-            SectorDriverContext(
-                title="AI accelerator demand",
-                explanation="AI workloads increase accelerator demand.",
-                materiality="high",
-            )
-        ],
-        common_risks=[
-            SectorRiskContext(
-                title="Export controls",
-                explanation="Restrictions can limit advanced chip sales.",
-                materiality="high",
-            )
-        ],
-        competition_dimensions=["AI accelerators"],
-        provider="test",
-    )
-
-
-def make_peer_context(asset: str = "NVDA") -> CompanyPeerContext:
-    return CompanyPeerContext(
+def make_peer_context(asset: str = "NVDA") -> CompanyPeersContext:
+    return CompanyPeersContext(
         asset=asset,
         peers=[
-            CompetitivePeer(
+            CompanyPeer(
                 ticker="AMD",
                 name="Advanced Micro Devices",
                 competition_area="AI accelerators",
@@ -133,146 +104,105 @@ def make_peer_context(asset: str = "NVDA") -> CompanyPeerContext:
             )
         ],
         provider="test",
-        confidence="high",
     )
 
 
-# ── planner_node ─────────────────────────────────────────────────────────────
+def make_fundamentals(asset: str = "NVDA") -> CompanyFundamentalsContext:
+    return CompanyFundamentalsContext(
+        asset=asset,
+        provider="test",
+        revenue=10.0,
+        operating_margin=0.25,
+    )
+
+
+# ── company_profile_node ──────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_planner_routes_stock_to_stable_profile_tool() -> None:
-    state = {"request": make_request(asset_type=AssetType.STOCK), "errors": []}
-    result = await planner_node(state)
-    assert result["selected_tool_name"] == "stable_asset_profile_search"
-
-
-@pytest.mark.asyncio
-async def test_planner_returns_none_tool_for_unsupported_type() -> None:
-    state = {"request": make_request(asset_type=AssetType.CRYPTO), "errors": []}
-    result = await planner_node(state)
-    assert result["selected_tool_name"] is None
-
-
-@pytest.mark.asyncio
-async def test_planner_adds_error_for_unsupported_type() -> None:
-    state = {"request": make_request(asset_type=AssetType.CRYPTO), "errors": []}
-    result = await planner_node(state)
-    assert any("CRYPTO" in e for e in result["errors"])
-
-
-# ── asset_profile_tool_node ───────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_asset_profile_tool_returns_context_on_success() -> None:
+async def test_company_profile_returns_context_on_success() -> None:
     profile = make_profile()
     mock_tool = AsyncMock()
     mock_tool.run.return_value = profile
-    tools = {"stable_asset_profile_search": mock_tool}
 
-    state = {
-        "request": make_request(),
-        "selected_tool_name": "stable_asset_profile_search",
-        "errors": [],
-    }
-    result = await asset_profile_tool_node(state, tools)
+    state = {"request": make_request(), "errors": []}
+    result = await company_profile_node(state, mock_tool)
     assert result["asset_profile_context"] == profile
 
 
 @pytest.mark.asyncio
-async def test_asset_profile_tool_calls_run_with_correct_args() -> None:
+async def test_company_profile_calls_run_with_correct_args() -> None:
     mock_tool = AsyncMock()
     mock_tool.run.return_value = make_profile()
-    tools = {"stable_asset_profile_search": mock_tool}
 
     state = {
         "request": make_request(asset="NVDA", asset_type=AssetType.STOCK),
-        "selected_tool_name": "stable_asset_profile_search",
         "errors": [],
     }
-    await asset_profile_tool_node(state, tools)
+    await company_profile_node(state, mock_tool)
     mock_tool.run.assert_awaited_once_with(asset="NVDA", asset_type=AssetType.STOCK)
 
 
 @pytest.mark.asyncio
-async def test_asset_profile_tool_uses_resolved_asset_when_available() -> None:
+async def test_company_profile_uses_resolved_asset_when_available() -> None:
     mock_tool = AsyncMock()
     mock_tool.run.return_value = make_profile("AAPL")
-    tools = {"stable_asset_profile_search": mock_tool}
 
     state = {
         "request": make_request(asset="Apple", asset_type=AssetType.STOCK),
         "resolved_asset": "AAPL",
-        "selected_tool_name": "stable_asset_profile_search",
         "errors": [],
     }
-    await asset_profile_tool_node(state, tools)
+    await company_profile_node(state, mock_tool)
     mock_tool.run.assert_awaited_once_with(asset="AAPL", asset_type=AssetType.STOCK)
 
 
 @pytest.mark.asyncio
-async def test_asset_profile_tool_returns_none_when_no_tool_selected() -> None:
-    state = {"request": make_request(), "selected_tool_name": None, "errors": []}
-    result = await asset_profile_tool_node(state, {})
-    assert result["asset_profile_context"] is None
-
-
-@pytest.mark.asyncio
-async def test_asset_profile_tool_returns_none_when_tool_not_found() -> None:
-    state = {
-        "request": make_request(),
-        "selected_tool_name": "unknown_tool",
-        "errors": [],
-    }
-    result = await asset_profile_tool_node(state, {})
-    assert result["asset_profile_context"] is None
-    assert any("unknown_tool" in e for e in result["errors"])
-
-
-@pytest.mark.asyncio
-async def test_asset_profile_tool_handles_tool_exception() -> None:
+async def test_company_profile_handles_tool_exception() -> None:
     mock_tool = AsyncMock()
     mock_tool.run.side_effect = RuntimeError("network error")
-    tools = {"stable_asset_profile_search": mock_tool}
 
-    state = {
-        "request": make_request(),
-        "selected_tool_name": "stable_asset_profile_search",
-        "errors": [],
-    }
-    result = await asset_profile_tool_node(state, tools)
+    state = {"request": make_request(), "errors": []}
+    result = await company_profile_node(state, mock_tool)
     assert result["asset_profile_context"] is None
     assert any("network error" in e for e in result["errors"])
 
 
-# ── sector_context_tool_node ──────────────────────────────────────────────────
+# ── company_fundamentals_node ─────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_sector_context_tool_returns_context_on_success() -> None:
+async def test_company_fundamentals_node_returns_context_on_success() -> None:
     mock_tool = AsyncMock()
-    sector_context = make_sector_context()
-    mock_tool.run.return_value = sector_context
+    context = CompanyFundamentalsContext(
+        asset="NVDA",
+        provider="test",
+        revenue=10.0,
+    )
+    mock_tool.run.return_value = context
     profile = make_profile()
 
     state = {"asset_profile_context": profile, "errors": []}
-    result = await sector_context_tool_node(state, mock_tool)
+    result = await company_fundamentals_node(
+        state | {"request": make_request()}, mock_tool
+    )
 
-    assert result["sector_context"] == sector_context
-    mock_tool.run.assert_awaited_once_with(asset_profile_context=profile)
+    assert result["company_fundamentals_context"] == context
+    mock_tool.run.assert_awaited_once_with(
+        asset_profile_context=profile,
+    )
 
 
 @pytest.mark.asyncio
-async def test_sector_context_tool_handles_exception() -> None:
+async def test_company_fundamentals_node_handles_exception() -> None:
     mock_tool = AsyncMock()
-    mock_tool.run.side_effect = RuntimeError("sector mapping failed")
+    mock_tool.run.side_effect = RuntimeError("fundamentals failed")
 
-    state = {"asset_profile_context": make_profile(), "errors": []}
-    result = await sector_context_tool_node(state, mock_tool)
+    state = {"request": make_request(), "asset_profile_context": None, "errors": []}
+    result = await company_fundamentals_node(state, mock_tool)
 
-    assert result["sector_context"] is None
-    assert any("sector mapping failed" in e for e in result["errors"])
+    assert result["company_fundamentals_context"] is None
+    assert any("fundamentals failed" in e for e in result["errors"])
 
 
 # ── company_peers_tool_node ───────────────────────────────────────────────────
@@ -290,11 +220,10 @@ async def test_company_peers_tool_returns_context_on_success() -> None:
         "asset_profile_context": profile,
         "errors": [],
     }
-    result = await company_peers_tool_node(state, mock_tool)
+    result = await company_peers_node(state, mock_tool)
 
     assert result["company_peers_context"] == peer_context
     mock_tool.run.assert_awaited_once_with(
-        asset="NVDA",
         asset_profile_context=profile,
     )
 
@@ -311,10 +240,9 @@ async def test_company_peers_tool_uses_resolved_asset() -> None:
         "asset_profile_context": profile,
         "errors": [],
     }
-    await company_peers_tool_node(state, mock_tool)
+    await company_peers_node(state, mock_tool)
 
     mock_tool.run.assert_awaited_once_with(
-        asset="AAPL",
         asset_profile_context=profile,
     )
 
@@ -325,7 +253,7 @@ async def test_company_peers_tool_handles_exception() -> None:
     mock_tool.run.side_effect = RuntimeError("peer mapping failed")
 
     state = {"request": make_request(), "asset_profile_context": None, "errors": []}
-    result = await company_peers_tool_node(state, mock_tool)
+    result = await company_peers_node(state, mock_tool)
 
     assert result["company_peers_context"] is None
     assert any("peer mapping failed" in e for e in result["errors"])
@@ -345,10 +273,11 @@ async def test_generate_snapshot_sets_raw_llm_output() -> None:
         "request": make_request(),
         "asset_profile_context": None,
         "company_peers_context": None,
-        "sector_context": None,
+        "company_fundamentals_context": None,
         "errors": [],
     }
-    result = await generate_snapshot_node(state, mock_llm, mock_builder)
+    mock_builder.data_scope.return_value = "model_static_knowledge_fallback"
+    result = await generate_stock_snapshot_node(state, mock_llm, mock_builder)
     assert result["raw_llm_output"] == snapshot_json()
 
 
@@ -359,24 +288,25 @@ async def test_generate_snapshot_passes_profile_context_to_builder() -> None:
     mock_builder = MagicMock()
     mock_builder.build_prompt.return_value = "prompt"
     profile = make_profile()
-    sector_context = make_sector_context()
     peer_context = make_peer_context()
+    fundamentals = make_fundamentals()
 
     state = {
         "request": make_request(),
         "asset_profile_context": profile,
-        "sector_context": sector_context,
         "company_peers_context": peer_context,
+        "company_fundamentals_context": fundamentals,
         "errors": [],
     }
-    await generate_snapshot_node(state, mock_llm, mock_builder)
+    mock_builder.data_scope.return_value = "profile_with_peers_and_financial_signals"
+    await generate_stock_snapshot_node(state, mock_llm, mock_builder)
 
     mock_builder.build_prompt.assert_called_once_with(
         asset="NVDA",
         asset_type=AssetType.STOCK,
         asset_profile_context=profile,
         company_peers_context=peer_context,
-        sector_context=sector_context,
+        company_fundamentals_context=fundamentals,
     )
 
 
@@ -467,10 +397,11 @@ async def test_generate_snapshot_records_error_on_llm_failure() -> None:
         "request": make_request(),
         "asset_profile_context": None,
         "company_peers_context": None,
-        "sector_context": None,
+        "company_fundamentals_context": None,
         "errors": [],
     }
-    result = await generate_snapshot_node(state, mock_llm, mock_builder)
+    mock_builder.data_scope.return_value = "model_static_knowledge_fallback"
+    result = await generate_stock_snapshot_node(state, mock_llm, mock_builder)
     assert result["raw_llm_output"] is None
     assert any("timeout" in e for e in result["errors"])
 
@@ -481,24 +412,24 @@ async def test_generate_snapshot_records_error_on_llm_failure() -> None:
 @pytest.mark.asyncio
 async def test_validate_snapshot_parses_json() -> None:
     state = {"raw_llm_output": snapshot_json(), "errors": []}
-    result = await validate_snapshot_node(state)
-    assert isinstance(result["validated_output"], AssetSnapshot)
+    result = await validate_stock_snapshot_node(state)
+    assert isinstance(result["validated_output"], StockAssetSnapshot)
 
 
 @pytest.mark.asyncio
 async def test_validate_snapshot_parses_markdown_fenced_json() -> None:
     state = {"raw_llm_output": f"```json\n{snapshot_json('MA')}\n```", "errors": []}
-    result = await validate_snapshot_node(state)
+    result = await validate_stock_snapshot_node(state)
     output = result["validated_output"]
 
-    assert isinstance(output, AssetSnapshot)
+    assert isinstance(output, StockAssetSnapshot)
     assert output.asset == "MA"
 
 
 @pytest.mark.asyncio
 async def test_validate_snapshot_fields_are_correct() -> None:
     state = {"raw_llm_output": snapshot_json("MA"), "errors": []}
-    result = await validate_snapshot_node(state)
+    result = await validate_stock_snapshot_node(state)
     output = result["validated_output"]
     assert output.asset == "MA"
     assert output.structural_drivers[0].title == "AI demand"
@@ -514,10 +445,10 @@ async def test_validate_snapshot_accepts_uppercase_materiality() -> None:
     payload["structural_risks"][0]["materiality"] = "Medium"
     state = {"raw_llm_output": json.dumps(payload), "errors": []}
 
-    result = await validate_snapshot_node(state)
+    result = await validate_stock_snapshot_node(state)
     output = result["validated_output"]
 
-    assert isinstance(output, AssetSnapshot)
+    assert isinstance(output, StockAssetSnapshot)
     assert output.structural_drivers[0].materiality == "high"
     assert output.structural_risks[0].materiality == "medium"
 
@@ -525,7 +456,7 @@ async def test_validate_snapshot_accepts_uppercase_materiality() -> None:
 @pytest.mark.asyncio
 async def test_validate_snapshot_returns_none_on_invalid_json() -> None:
     state = {"raw_llm_output": "not json at all", "errors": []}
-    result = await validate_snapshot_node(state)
+    result = await validate_stock_snapshot_node(state)
     assert result["validated_output"] is None
     assert any("parse error" in e for e in result["errors"])
 
@@ -533,7 +464,7 @@ async def test_validate_snapshot_returns_none_on_invalid_json() -> None:
 @pytest.mark.asyncio
 async def test_validate_snapshot_returns_none_on_missing_fields() -> None:
     state = {"raw_llm_output": json.dumps({"asset": "NVDA"}), "errors": []}
-    result = await validate_snapshot_node(state)
+    result = await validate_stock_snapshot_node(state)
     assert result["validated_output"] is None
     assert result["errors"]
 
@@ -541,6 +472,6 @@ async def test_validate_snapshot_returns_none_on_missing_fields() -> None:
 @pytest.mark.asyncio
 async def test_validate_snapshot_returns_none_when_no_output() -> None:
     state = {"raw_llm_output": None, "errors": []}
-    result = await validate_snapshot_node(state)
+    result = await validate_stock_snapshot_node(state)
     assert result["validated_output"] is None
     assert result["errors"]

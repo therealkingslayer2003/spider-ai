@@ -1,23 +1,24 @@
+from unittest.mock import AsyncMock
+
 import pytest
 
-from app.agents.asset_snapshot.tools import CompanyPeersTool, SectorContextTool
+from app.agents.asset_snapshot.tools import CompanyFundamentalsTool, CompanyPeersTool
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
+from app.domain.schemas.company_fundamentals_context import (
+    CompanyFundamentalsContext,
+)
+from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
 
 
-def make_profile(
-    asset: str = "MA",
-    sector: str | None = "Financial Services",
-    industry: str | None = "Credit Services",
-    business_summary: str | None = "Global payment network and transaction processor.",
-) -> AssetProfileContext:
+def make_profile(asset: str = "MA") -> AssetProfileContext:
     return AssetProfileContext(
         asset=asset,
         asset_type=AssetType.STOCK,
         name="Test Company",
-        sector=sector,
-        industry=industry,
-        business_summary=business_summary,
+        sector="Financial Services",
+        industry="Payments",
+        business_summary="Global payment network and transaction processor.",
         exchange="NYSE",
         currency="USD",
         country="USA",
@@ -26,95 +27,79 @@ def make_profile(
 
 
 @pytest.mark.asyncio
-async def test_company_peers_tool_returns_mastercard_peers() -> None:
-    context = await CompanyPeersTool().run(
+async def test_company_peers_tool_returns_provider_peers() -> None:
+    provider = AsyncMock()
+    context = CompanyPeersContext(
         asset="MA",
-        asset_profile_context=make_profile(),
+        provider="fmp",
+        peers=[CompanyPeer(ticker="V", provider="fmp")],
     )
-    tickers = {peer.ticker for peer in context.peers}
-    names = {peer.name for peer in context.peers}
+    provider.get_company_peers.return_value = context
+    profile = make_profile()
 
-    assert {"V", "AXP", "PYPL", "SQ", "ADYEN.AS"}.issubset(tickers)
-    assert "Visa" in names
-    assert context.confidence == "high"
-
-
-@pytest.mark.asyncio
-async def test_company_peers_tool_returns_google_peers() -> None:
-    context = await CompanyPeersTool().run(
-        asset="GOOGL",
-        asset_profile_context=make_profile(asset="GOOGL"),
-    )
-    tickers = {peer.ticker for peer in context.peers}
-    names = {peer.name for peer in context.peers}
-
-    assert {"MSFT", "META", "AMZN", "AAPL"}.issubset(tickers)
-    assert "TikTok / ByteDance" in names
-
-
-@pytest.mark.asyncio
-async def test_company_peers_tool_unknown_ticker_returns_empty_peers() -> None:
-    context = await CompanyPeersTool().run(
-        asset="UNKNOWN",
-        asset_profile_context=None,
+    result = await CompanyPeersTool(provider=provider).run(
+        asset_profile_context=profile,
     )
 
-    assert context.peers == []
-    assert context.confidence == "low"
-
-
-@pytest.mark.asyncio
-async def test_sector_context_tool_returns_payments_context() -> None:
-    context = await SectorContextTool().run(
-        asset_profile_context=make_profile(
-            industry="Transaction & Payment Processing Services",
-            business_summary="Provides card payment network processing.",
-        )
-    )
-
-    assert "Payment" in context.industry
-    assert any(
-        "interchange" in risk.explanation.lower() for risk in context.common_risks
+    assert result == context
+    provider.get_company_peers.assert_awaited_once_with(
+        asset_profile=profile,
     )
 
 
 @pytest.mark.asyncio
-async def test_sector_context_tool_returns_digital_advertising_context() -> None:
-    context = await SectorContextTool().run(
-        asset_profile_context=make_profile(
-            sector="Communication Services",
-            industry="Internet Content & Information",
-            business_summary="Search advertising and YouTube video advertising.",
-        )
+async def test_company_peers_tool_returns_empty_peers_when_provider_fails() -> None:
+    provider = AsyncMock()
+    provider.get_company_peers.side_effect = RuntimeError("fmp failed")
+    profile = make_profile()
+
+    result = await CompanyPeersTool(provider=provider).run(
+        asset_profile_context=profile,
     )
 
-    assert "Digital Advertising" in context.industry
-    assert any("AI search" in risk.title for risk in context.common_risks)
+    assert result.asset == "MA"
+    assert result.peers == []
+    assert result.provider == "unavailable"
 
 
 @pytest.mark.asyncio
-async def test_sector_context_tool_returns_semiconductor_context() -> None:
-    context = await SectorContextTool().run(
-        asset_profile_context=make_profile(
-            sector="Technology",
-            industry="Semiconductors",
-            business_summary="Designs GPUs and AI accelerators.",
-        )
+async def test_company_fundamentals_tool_returns_provider_context() -> None:
+    provider = AsyncMock()
+    context = CompanyFundamentalsContext(
+        asset="MA",
+        provider="fmp",
+        revenue=10.0,
+        operating_margin=0.4,
+    )
+    provider.get_fundamentals.return_value = context
+    profile = make_profile()
+
+    result = await CompanyFundamentalsTool(provider=provider).run(
+        asset_profile_context=profile,
     )
 
-    assert "Semiconductors" in context.industry
-    assert any("AI accelerator" in driver.title for driver in context.common_drivers)
+    assert result == context
+    provider.get_fundamentals.assert_awaited_once_with(
+        asset_profile=profile,
+    )
 
 
 @pytest.mark.asyncio
-async def test_sector_context_tool_unknown_industry_returns_generic_context() -> None:
-    context = await SectorContextTool().run(
-        asset_profile_context=make_profile(
-            sector="Industrials",
-            industry="Specialty Business Services",
-            business_summary="Provides services to businesses.",
-        )
+async def test_company_fundamentals_tool_returns_empty_on_provider_failure() -> None:
+    provider = AsyncMock()
+    provider.get_fundamentals.side_effect = RuntimeError("fmp failed")
+    profile = make_profile()
+
+    result = await CompanyFundamentalsTool(provider=provider).run(
+        asset_profile_context=profile,
     )
 
-    assert context.business_model_pattern == "Public company business economics."
-    assert context.provider == "static_sector_context_v1"
+    assert result.asset == "MA"
+    assert result.provider == "unavailable"
+    assert result.revenue is None
+
+
+def test_sector_context_tool_is_not_exported_in_production_tools() -> None:
+    import app.agents.asset_snapshot.tools as tools
+
+    assert not hasattr(tools, "SectorContextTool")

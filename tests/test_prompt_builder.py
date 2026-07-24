@@ -1,20 +1,18 @@
 import pytest
 
 from app.domain.schemas.asset_profile_context import AssetProfileContext
-from app.domain.schemas.asset_snapshot import AssetType, CompetitivePeer
-from app.domain.schemas.company_peer_context import CompanyPeerContext
-from app.domain.schemas.sector_context import (
-    SectorContext,
-    SectorDriverContext,
-    SectorRiskContext,
+from app.domain.schemas.asset_snapshot import AssetType
+from app.domain.schemas.company_fundamentals_context import (
+    CompanyFundamentalsContext,
 )
-from app.llm.prompts.feature_snapshot_prompt_builder import AssetSnapshotPromptBuilder
+from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
+from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
 
 @pytest.fixture
-def builder() -> AssetSnapshotPromptBuilder:
-    return AssetSnapshotPromptBuilder()
+def builder() -> StockSnapshotPromptBuilder:
+    return StockSnapshotPromptBuilder()
 
 
 @pytest.fixture
@@ -29,209 +27,297 @@ def profile_context() -> AssetProfileContext:
         exchange="NASDAQ",
         currency="USD",
         country="USA",
-        provider="test",
+        provider="yfinance",
     )
 
 
 @pytest.fixture
-def sector_context() -> SectorContext:
-    return SectorContext(
-        sector="Technology",
-        industry="Semiconductors / AI Hardware",
-        business_model_pattern="AI hardware platform economics.",
-        market_context="AI chips depend on data center capex.",
-        common_drivers=[
-            SectorDriverContext(
-                title="AI accelerator demand",
-                explanation="AI workloads increase accelerator demand.",
-                materiality="high",
-            )
-        ],
-        common_risks=[
-            SectorRiskContext(
-                title="Export controls",
-                explanation="Restrictions can limit advanced chip sales.",
-                materiality="high",
-            )
-        ],
-        competition_dimensions=["AI accelerators", "custom ASICs"],
-        provider="test",
-    )
-
-
-@pytest.fixture
-def peer_context() -> CompanyPeerContext:
-    return CompanyPeerContext(
+def peer_context() -> CompanyPeersContext:
+    return CompanyPeersContext(
         asset="NVDA",
+        provider="fmp",
         peers=[
-            CompetitivePeer(
+            CompanyPeer(
                 ticker="AMD",
                 name="Advanced Micro Devices",
                 competition_area="AI accelerators",
                 why_competitor="AMD competes in GPUs.",
                 why_it_matters="It pressures pricing and share.",
+                provider="fmp",
             )
         ],
-        provider="test",
-        confidence="high",
     )
 
 
-# ── base prompt structure ─────────────────────────────────────────────────────
+@pytest.fixture
+def fundamentals_context() -> CompanyFundamentalsContext:
+    return CompanyFundamentalsContext(
+        asset="NVDA",
+        provider="fmp",
+        market_cap=1_000_000.0,
+        operating_margin=0.3,
+        debt_to_equity=0.4,
+        revenue=100.0,
+        revenue_growth=0.1,
+    )
 
 
-def test_prompt_contains_system_prompt(builder: AssetSnapshotPromptBuilder) -> None:
+def test_prompt_contains_system_prompt(builder: StockSnapshotPromptBuilder) -> None:
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
     assert BASE_SYSTEM_PROMPT in prompt
 
 
-def test_prompt_injects_asset(builder: AssetSnapshotPromptBuilder) -> None:
+def test_prompt_injects_asset_and_type(builder: StockSnapshotPromptBuilder) -> None:
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
     assert "NVDA" in prompt
-
-
-def test_prompt_injects_asset_type(builder: AssetSnapshotPromptBuilder) -> None:
-    prompt = builder.build_prompt("NVDA", AssetType.STOCK)
     assert AssetType.STOCK.value in prompt
 
 
-def test_prompt_does_not_contain_raw_placeholders(
-    builder: AssetSnapshotPromptBuilder,
-) -> None:
-    prompt = builder.build_prompt("SPY", AssetType.ETF)
-    assert "{asset}" not in prompt
-    assert "{asset_type}" not in prompt
-
-
-def test_prompt_does_not_raise_on_all_asset_types(
-    builder: AssetSnapshotPromptBuilder,
-) -> None:
-    for asset_type in AssetType:
-        builder.build_prompt("TEST", asset_type)
-
-
-# ── asset_profile_context injection ──────────────────────────────────────────
-
-
 def test_prompt_without_context_has_fallback_profile_section(
-    builder: AssetSnapshotPromptBuilder,
+    builder: StockSnapshotPromptBuilder,
 ) -> None:
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
-    assert "1. Provider company profile" in prompt
+    assert "1. COMPANY PROFILE" in prompt
     assert "Provider: none" in prompt
     assert "No provider profile was found" in prompt
+    assert "model_static_knowledge_fallback" in prompt
 
 
-def test_prompt_with_context_includes_profile_section(
-    builder: AssetSnapshotPromptBuilder,
+def test_prompt_with_profile_context_includes_provider_fields(
+    builder: StockSnapshotPromptBuilder,
     profile_context: AssetProfileContext,
-) -> None:
-    prompt = builder.build_prompt(
-        "NVDA", AssetType.STOCK, asset_profile_context=profile_context
-    )
-    assert "1. Provider company profile" in prompt
-
-
-def test_prompt_with_context_includes_all_fields(
-    builder: AssetSnapshotPromptBuilder,
-    profile_context: AssetProfileContext,
-) -> None:
-    prompt = builder.build_prompt(
-        "NVDA", AssetType.STOCK, asset_profile_context=profile_context
-    )
-    assert "NVIDIA Corporation" in prompt
-    assert "Technology" in prompt
-    assert "Semiconductors" in prompt
-    assert "Provider: test" in prompt
-    assert "Fetched at:" in prompt
-    assert "NASDAQ" in prompt
-    assert "USD" in prompt
-    assert "USA" in prompt
-    assert "NVIDIA designs GPUs" in prompt
-
-
-def test_prompt_with_none_context_uses_fallback(
-    builder: AssetSnapshotPromptBuilder,
-) -> None:
-    with_none = builder.build_prompt(
-        "NVDA", AssetType.STOCK, asset_profile_context=None
-    )
-    assert "Provider: none" in with_none
-
-
-def test_profile_section_appended_after_main_prompt(
-    builder: AssetSnapshotPromptBuilder,
-    profile_context: AssetProfileContext,
-) -> None:
-    prompt = builder.build_prompt(
-        "NVDA", AssetType.STOCK, asset_profile_context=profile_context
-    )
-    main_prompt_end = prompt.index("data_scope")
-    profile_start = prompt.index("1. Provider company profile")
-    assert profile_start > main_prompt_end
-
-
-def test_prompt_with_sector_context_includes_sector_section(
-    builder: AssetSnapshotPromptBuilder,
-    sector_context: SectorContext,
-) -> None:
-    prompt = builder.build_prompt(
-        "NVDA",
-        AssetType.STOCK,
-        sector_context=sector_context,
-    )
-
-    assert "2. Sector / industry context" in prompt
-    assert "AI accelerator demand" in prompt
-    assert "Export controls" in prompt
-    assert "custom ASICs" in prompt
-
-
-def test_prompt_with_peer_context_includes_competitor_names_and_tickers(
-    builder: AssetSnapshotPromptBuilder,
-    peer_context: CompanyPeerContext,
-) -> None:
-    prompt = builder.build_prompt(
-        "NVDA",
-        AssetType.STOCK,
-        company_peers_context=peer_context,
-    )
-
-    assert "3. Competitive landscape context" in prompt
-    assert "Advanced Micro Devices" in prompt
-    assert "AMD" in prompt
-    assert "AI accelerators" in prompt
-
-
-def test_prompt_includes_v15_json_schema(builder: AssetSnapshotPromptBuilder) -> None:
-    prompt = builder.build_prompt("NVDA", AssetType.STOCK)
-
-    assert "competitive_landscape" in prompt
-    assert "related_competitors" in prompt
-    assert '"materiality": "low | medium | high"' in prompt
-
-
-def test_prompt_instructs_model_to_avoid_vague_risks(
-    builder: AssetSnapshotPromptBuilder,
-) -> None:
-    prompt = builder.build_prompt("NVDA", AssetType.STOCK)
-
-    assert "Avoid vague risks" in prompt
-    assert "Every structural risk must explain" in prompt
-
-
-def test_prompt_data_scope_reflects_available_contexts(
-    builder: AssetSnapshotPromptBuilder,
-    profile_context: AssetProfileContext,
-    sector_context: SectorContext,
-    peer_context: CompanyPeerContext,
 ) -> None:
     prompt = builder.build_prompt(
         "NVDA",
         AssetType.STOCK,
         asset_profile_context=profile_context,
-        sector_context=sector_context,
+    )
+
+    assert "NVIDIA Corporation" in prompt
+    assert "Technology" in prompt
+    assert "Semiconductors" in prompt
+    assert "Provider: yfinance" in prompt
+    assert "profile_only" in prompt
+
+
+def test_prompt_with_peers_context_includes_competitors(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    peer_context: CompanyPeersContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
         company_peers_context=peer_context,
     )
 
-    assert "provider_profile_with_static_sector_and_peer_context" in prompt
+    assert "2. COMPETITIVE CONTEXT" in prompt
+    assert "Advanced Micro Devices" in prompt
+    assert "AMD" in prompt
+    assert "profile_with_peers" in prompt
+
+
+def test_prompt_with_fundamentals_context_includes_metrics(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    fundamentals_context: CompanyFundamentalsContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_fundamentals_context=fundamentals_context,
+    )
+
+    assert "3. OPTIONAL FINANCIAL SIGNALS" in prompt
+    assert "market_cap" in prompt
+    assert "operating_margin" in prompt
+    assert "optional calibration signals" in prompt
+    assert "profile_with_financial_signals" in prompt
+
+
+def test_prompt_data_scope_reflects_profile_peers_and_fundamentals(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    peer_context: CompanyPeersContext,
+    fundamentals_context: CompanyFundamentalsContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_peers_context=peer_context,
+        company_fundamentals_context=fundamentals_context,
+    )
+
+    assert "profile_with_peers_and_financial_signals" in prompt
+
+
+def test_prompt_is_business_model_first(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+    )
+
+    assert "company profile and business model are the primary basis" in prompt
+    assert "Financial metrics are optional calibration signals" in prompt
+
+
+def test_prompt_includes_only_available_financial_signals(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    fundamentals = CompanyFundamentalsContext(
+        asset="NVDA",
+        provider="yfinance",
+        operating_margin=0.3,
+    )
+
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_fundamentals_context=fundamentals,
+    )
+
+    assert "operating_margin: 0.3" in prompt
+    assert "market_cap:" not in prompt
+    assert "debt_to_equity:" not in prompt
+    assert "revenue:" not in prompt
+    assert "revenue_growth:" not in prompt
+
+
+def test_removed_financial_metrics_are_absent_from_prompt(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    fundamentals_context: CompanyFundamentalsContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_fundamentals_context=fundamentals_context,
+    )
+
+    assert "gross_margin" not in prompt
+    assert "net_margin" not in prompt
+    assert "return_on_equity" not in prompt
+
+
+@pytest.mark.parametrize(
+    ("peers", "fundamentals", "expected_scope"),
+    [
+        (None, None, "profile_only"),
+        (
+            CompanyPeersContext(
+                asset="NVDA",
+                provider="fmp",
+                peers=[CompanyPeer(ticker="AMD")],
+            ),
+            None,
+            "profile_with_peers",
+        ),
+        (
+            None,
+            CompanyFundamentalsContext(
+                asset="NVDA",
+                provider="yfinance",
+                market_cap=1_000.0,
+            ),
+            "profile_with_financial_signals",
+        ),
+        (
+            CompanyPeersContext(
+                asset="NVDA",
+                provider="fmp",
+                peers=[CompanyPeer(ticker="AMD")],
+            ),
+            CompanyFundamentalsContext(
+                asset="NVDA",
+                provider="yfinance",
+                operating_margin=0.3,
+            ),
+            "profile_with_peers_and_financial_signals",
+        ),
+    ],
+)
+def test_data_scope_reflects_meaningful_provider_coverage(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    peers: CompanyPeersContext | None,
+    fundamentals: CompanyFundamentalsContext | None,
+    expected_scope: str,
+) -> None:
+    assert (
+        builder.data_scope(
+            asset_profile_context=profile_context,
+            company_peers_context=peers,
+            company_fundamentals_context=fundamentals,
+        )
+        == expected_scope
+    )
+
+
+def test_empty_financial_context_does_not_change_profile_scope(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    fundamentals = CompanyFundamentalsContext(
+        asset="NVDA",
+        provider="yfinance",
+    )
+
+    assert (
+        builder.data_scope(
+            asset_profile_context=profile_context,
+            company_peers_context=None,
+            company_fundamentals_context=fundamentals,
+        )
+        == "profile_only"
+    )
+
+
+def test_prompt_uses_fmp_profile_fallback_scope(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    profile_context.provider = "fmp"
+
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+    )
+
+    assert "fmp_profile_fallback" in prompt
+
+
+def test_prompt_includes_risk_mechanism_guardrails(
+    builder: StockSnapshotPromptBuilder,
+) -> None:
+    prompt = builder.build_prompt("NVDA", AssetType.STOCK)
+
+    assert "Avoid vague risks" in prompt
+    assert "Every structural risk must explain" in prompt
+    assert "No buy/sell/hold" not in prompt
+
+
+def test_prompt_does_not_contain_raw_vendor_json(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    peer_context: CompanyPeersContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_peers_context=peer_context,
+    )
+
+    assert "regularMarketPrice" not in prompt
+    assert "raw" not in prompt.lower()

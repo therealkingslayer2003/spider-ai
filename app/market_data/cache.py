@@ -73,3 +73,32 @@ class InMemoryTTLAssetProfileCache:
     @staticmethod
     def _key(asset: str, asset_type: AssetType) -> tuple[str, AssetType]:
         return (asset.upper(), asset_type)
+
+
+class InMemoryTTLCache:
+    def __init__(
+        self,
+        ttl: timedelta = timedelta(hours=24),
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._ttl = ttl
+        self._now = now or (lambda: datetime.now(UTC))
+        self._values: dict[str, tuple[object, datetime]] = {}
+
+    def get(self, key: str) -> object | None:
+        normalized_key = key.upper()
+        cached = self._values.get(normalized_key)
+
+        if cached is None:
+            return None
+
+        value, expires_at = cached
+
+        if self._now() >= expires_at:
+            del self._values[normalized_key]
+            return None
+
+        return value
+
+    def set(self, key: str, value: object) -> None:
+        self._values[key.upper()] = (value, self._now() + self._ttl)

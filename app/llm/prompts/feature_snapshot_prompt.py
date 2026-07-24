@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 
 ASSET_SNAPSHOT_PROMPT = """
-Your task is to generate a structured Asset Snapshot v1.5.
+Your task is to generate a structured Asset Snapshot v1.
 
 The goal is to provide a stable structural profile of the asset. The answer must be specific, competitor-aware, risk-mechanism-aware, and useful for understanding the company as a business.
 
@@ -23,6 +23,8 @@ Safety / guardrail rules:
 - Do NOT rely on or pretend to have live market data.
 - Do NOT mention recent price moves, latest earnings, latest news, or current valuation unless provided in context.
 - For stock snapshots, explain the company as a business, not as a trading recommendation.
+- Treat the company profile and business model as the primary basis of the analysis.
+- Treat financial metrics as optional calibration signals, not the central subject.
 
 Output requirements:
 - Return ONLY valid JSON.
@@ -32,7 +34,8 @@ Output requirements:
 - Prefer specific competitor names and tickers when provided.
 - Named peers in competitive_landscape should come from the provided competitive landscape context.
 - If peer context is empty, do not invent obscure competitors.
-- It is acceptable to mention widely known competitors from sector context only if clearly relevant.
+- If optional financial signals are empty, continue from the company profile without interpreting their absence.
+- Use supplied financial signals only for stable structural interpretation, not valuation or investment advice.
 - Avoid vague risks such as "competition", "regulation", or "technology change" unless each risk explains the concrete mechanism.
 - Every structural risk must explain what can go wrong, why it matters, which business area is affected, and materiality.
 - Every structural driver and structural risk must use materiality: "low", "medium", or "high".
@@ -78,7 +81,7 @@ Field requirements:
 - "asset_type": must match the provided asset type.
 - "summary": 2-4 sentences explaining what the company is, what it represents, and why it is relevant.
 - "business_or_asset_profile": explain the business model, major economic engines, customer/merchant/user relationships, and economic role.
-- "market_context": explain sector and industry context using provided sector context when available.
+- "market_context": explain sector, industry, and regulatory context using the company profile and optional financial signals when available.
 - "competitive_landscape": include named competitors from provided peer context when available; explain why each competitor matters.
 - "structural_drivers": list 3-6 long-term or recurring drivers with concrete mechanisms and materiality.
 - "structural_risks": list 3-6 structural risks with concrete mechanisms, affected business area, materiality, and related_competitors when applicable.

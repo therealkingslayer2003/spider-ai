@@ -1,26 +1,28 @@
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
-from app.domain.schemas.company_peer_context import CompanyPeerContext
-from app.domain.schemas.sector_context import SectorContext
+from app.domain.schemas.company_fundamentals_context import (
+    CompanyFundamentalsContext,
+)
+from app.domain.schemas.company_peer_context import CompanyPeersContext
 from app.llm.prompts.feature_snapshot_prompt import ASSET_SNAPSHOT_PROMPT
 from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
 _BUSINESS_SUMMARY_MAX_LENGTH = 1_200
 
 
-class AssetSnapshotPromptBuilder:
+class StockSnapshotPromptBuilder:
     def build_prompt(
         self,
         asset: str,
         asset_type: AssetType,
         asset_profile_context: AssetProfileContext | None = None,
-        company_peers_context: CompanyPeerContext | None = None,
-        sector_context: SectorContext | None = None,
+        company_peers_context: CompanyPeersContext | None = None,
+        company_fundamentals_context: CompanyFundamentalsContext | None = None,
     ) -> str:
-        data_scope = self._data_scope(
+        data_scope = self.data_scope(
             asset_profile_context=asset_profile_context,
             company_peers_context=company_peers_context,
-            sector_context=sector_context,
+            company_fundamentals_context=company_fundamentals_context,
         )
         prompt = (
             BASE_SYSTEM_PROMPT
@@ -34,16 +36,19 @@ class AssetSnapshotPromptBuilder:
 
         context_sections = [
             "LLM context block:",
-            "1. Provider company profile",
+            "1. COMPANY PROFILE",
             self._build_profile_context_section(asset_profile_context),
-            "2. Sector / industry context",
-            self._build_sector_context_section(sector_context),
-            "3. Competitive landscape context",
+            "2. COMPETITIVE CONTEXT",
             self._build_peer_context_section(company_peers_context),
+            "3. OPTIONAL FINANCIAL SIGNALS",
+            self._build_fundamentals_context_section(company_fundamentals_context),
             "4. Output requirements",
             (
                 "Use the required JSON schema above. Make risks and drivers "
-                "specific, materiality-labeled, and mechanism-based."
+                "specific, materiality-labeled, and mechanism-based. The company "
+                "profile and business model are the primary basis of the structural "
+                "analysis. Financial metrics are optional calibration signals, not "
+                "the central subject of the snapshot."
             ),
             "5. Safety / guardrail rules",
             (
@@ -81,39 +86,9 @@ class AssetSnapshotPromptBuilder:
             f"{self._truncate(asset_profile_context.business_summary)}"
         )
 
-    def _build_sector_context_section(
-        self,
-        sector_context: SectorContext | None,
-    ) -> str:
-        if sector_context is None:
-            return "Provider: none\nStatus: No sector context was provided."
-
-        drivers = "\n".join(
-            (f"- {driver.title} ({driver.materiality}): {driver.explanation}")
-            for driver in sector_context.common_drivers
-        )
-        risks = "\n".join(
-            f"- {risk.title} ({risk.materiality}): {risk.explanation}"
-            for risk in sector_context.common_risks
-        )
-        competition_dimensions = ", ".join(sector_context.competition_dimensions)
-
-        return (
-            f"Provider: {sector_context.provider}\n"
-            f"Sector: {self._format_optional(sector_context.sector)}\n"
-            f"Industry: {self._format_optional(sector_context.industry)}\n"
-            "Business model pattern: "
-            f"{self._format_optional(sector_context.business_model_pattern)}\n"
-            f"Market context: {sector_context.market_context}\n"
-            f"Common drivers:\n{drivers or '- Not available'}\n"
-            f"Common risks:\n{risks or '- Not available'}\n"
-            "Competition dimensions: "
-            f"{competition_dimensions or 'Not available'}"
-        )
-
     def _build_peer_context_section(
         self,
-        company_peers_context: CompanyPeerContext | None,
+        company_peers_context: CompanyPeersContext | None,
     ) -> str:
         if company_peers_context is None:
             return "Provider: none\nStatus: No competitive peer context was provided."
@@ -122,16 +97,17 @@ class AssetSnapshotPromptBuilder:
             return (
                 f"Provider: {company_peers_context.provider}\n"
                 f"Asset: {company_peers_context.asset}\n"
-                f"Confidence: {company_peers_context.confidence}\n"
+                f"Fetched at: {company_peers_context.fetched_at.isoformat()}\n"
                 "Peers: none provided. Do not invent obscure competitors."
             )
 
         peers = "\n".join(
             (
-                f"- {peer.name}"
+                f"- {self._format_optional(peer.name)}"
                 f"{f' ({peer.ticker})' if peer.ticker else ''}: "
-                f"{peer.competition_area}. {peer.why_competitor} "
-                f"Why it matters: {peer.why_it_matters}"
+                f"competition_area={self._format_optional(peer.competition_area)}; "
+                f"why_competitor={self._format_optional(peer.why_competitor)}; "
+                f"why_it_matters={self._format_optional(peer.why_it_matters)}"
             )
             for peer in company_peers_context.peers
         )
@@ -139,30 +115,93 @@ class AssetSnapshotPromptBuilder:
         return (
             f"Provider: {company_peers_context.provider}\n"
             f"Asset: {company_peers_context.asset}\n"
-            f"Confidence: {company_peers_context.confidence}\n"
+            f"Fetched at: {company_peers_context.fetched_at.isoformat()}\n"
             f"Peers:\n{peers}"
         )
 
-    @staticmethod
-    def _data_scope(
-        asset_profile_context: AssetProfileContext | None,
-        company_peers_context: CompanyPeerContext | None,
-        sector_context: SectorContext | None,
+    def _build_fundamentals_context_section(
+        self,
+        context: CompanyFundamentalsContext | None,
     ) -> str:
-        has_profile = asset_profile_context is not None
-        has_sector = sector_context is not None
+        if context is None:
+            return (
+                "Provider: none\n"
+                "Status: No optional financial signals were provided. Continue from "
+                "the company profile; do not infer weak financial quality from "
+                "missing metrics."
+            )
+
+        metrics = {
+            "market_cap": context.market_cap,
+            "operating_margin": context.operating_margin,
+            "debt_to_equity": context.debt_to_equity,
+            "revenue": context.revenue,
+            "revenue_growth": context.revenue_growth,
+        }
+        available_metrics = {
+            key: value for key, value in metrics.items() if value is not None
+        }
+
+        if not available_metrics:
+            return (
+                f"Provider: {context.provider}\n"
+                f"Asset: {context.asset}\n"
+                f"Fetched at: {context.fetched_at.isoformat()}\n"
+                "Status: No optional financial signals were available. Continue "
+                "from the company profile and do not interpret their absence."
+            )
+
+        formatted = "\n".join(
+            f"- {key}: {value}" for key, value in available_metrics.items()
+        )
+
+        return (
+            f"Provider: {context.provider}\n"
+            f"Asset: {context.asset}\n"
+            f"Fetched at: {context.fetched_at.isoformat()}\n"
+            f"Metrics:\n{formatted}\n"
+            "Use these values only as secondary materiality and sensitivity "
+            "signals. Do not invent or interpret missing metrics, and do not draw "
+            "valuation conclusions from them."
+        )
+
+    @staticmethod
+    def data_scope(
+        asset_profile_context: AssetProfileContext | None,
+        company_peers_context: CompanyPeersContext | None,
+        company_fundamentals_context: CompanyFundamentalsContext | None,
+    ) -> str:
         has_peers = bool(company_peers_context and company_peers_context.peers)
+        has_financial_signals = bool(
+            company_fundamentals_context
+            and any(
+                value is not None
+                for value in (
+                    company_fundamentals_context.market_cap,
+                    company_fundamentals_context.operating_margin,
+                    company_fundamentals_context.debt_to_equity,
+                    company_fundamentals_context.revenue,
+                    company_fundamentals_context.revenue_growth,
+                )
+            )
+        )
 
-        if has_profile and has_sector and has_peers:
-            return "provider_profile_with_static_sector_and_peer_context"
+        if asset_profile_context is None:
+            return "model_static_knowledge_fallback"
 
-        if has_profile and has_sector:
-            return "provider_profile_with_static_sector_context"
+        if asset_profile_context.provider == "fmp":
+            return "fmp_profile_fallback"
 
-        if has_profile:
-            return "provider_profile_only"
+        if has_peers and has_financial_signals:
+            return "profile_with_peers_and_financial_signals"
 
-        return "model_static_knowledge_fallback"
+        if has_peers:
+            return "profile_with_peers"
+
+        if has_financial_signals:
+            return "profile_with_financial_signals"
+
+        return "profile_only"
 
     @staticmethod
     def _format_optional(value: str | None) -> str:

@@ -9,12 +9,12 @@ from app.domain.schemas.asset_snapshot import AssetSnapshotRequest, AssetType
 
 @pytest.mark.asyncio
 async def test_runner_raises_service_error_when_graph_has_no_valid_snapshot() -> None:
-    runner = AssetSnapshotGraphRunner.__new__(AssetSnapshotGraphRunner)
-    runner.graph = AsyncMock()
-    runner.graph.ainvoke.return_value = {
+    router_graph = AsyncMock()
+    router_graph.ainvoke.return_value = {
         "validated_output": None,
-        "errors": ["LLM output parse error"],
+        "error": "LLM output parse error",
     }
+    runner = AssetSnapshotGraphRunner(router_graph=router_graph)
 
     request = AssetSnapshotRequest(asset="GOOGL", asset_type=AssetType.STOCK)
 

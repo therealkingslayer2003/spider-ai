@@ -2,14 +2,32 @@ import pytest
 from pydantic import ValidationError
 
 from app.domain.schemas.asset_snapshot import (
-    AssetSnapshot,
     AssetType,
     CompetitivePeer,
+    StockAssetSnapshot,
+)
+from app.domain.schemas.company_fundamentals_context import (
+    CompanyFundamentalsContext,
 )
 
 
+def test_fundamentals_schema_contains_only_v1_financial_signals() -> None:
+    fields = set(CompanyFundamentalsContext.model_fields)
+
+    assert fields == {
+        "asset",
+        "provider",
+        "market_cap",
+        "operating_margin",
+        "debt_to_equity",
+        "revenue",
+        "revenue_growth",
+        "fetched_at",
+    }
+
+
 def test_asset_snapshot_validates_with_structured_fields() -> None:
-    snapshot = AssetSnapshot.model_validate(
+    snapshot = StockAssetSnapshot.model_validate(
         {
             "asset": "MA",
             "asset_type": "stock",
@@ -40,7 +58,7 @@ def test_asset_snapshot_validates_with_structured_fields() -> None:
                     "related_competitors": ["V"],
                 }
             ],
-            "data_scope": "provider_profile_with_static_sector_and_peer_context",
+            "data_scope": "profile_with_peers_and_financial_signals",
         }
     )
 
@@ -51,7 +69,7 @@ def test_asset_snapshot_validates_with_structured_fields() -> None:
 
 
 def test_asset_snapshot_normalizes_materiality_case() -> None:
-    snapshot = AssetSnapshot.model_validate(
+    snapshot = StockAssetSnapshot.model_validate(
         {
             "asset": "GOOGL",
             "asset_type": "stock",
@@ -74,7 +92,7 @@ def test_asset_snapshot_normalizes_materiality_case() -> None:
                     "related_competitors": ["MSFT"],
                 }
             ],
-            "data_scope": "provider_profile_with_static_sector_and_peer_context",
+            "data_scope": "profile_with_peers_and_financial_signals",
         }
     )
 
@@ -84,7 +102,7 @@ def test_asset_snapshot_normalizes_materiality_case() -> None:
 
 def test_structural_risk_requires_materiality() -> None:
     with pytest.raises(ValidationError):
-        AssetSnapshot.model_validate(
+        StockAssetSnapshot.model_validate(
             {
                 "asset": "MA",
                 "asset_type": "stock",
@@ -100,7 +118,7 @@ def test_structural_risk_requires_materiality() -> None:
                         "related_competitors": ["V"],
                     }
                 ],
-                "data_scope": "provider_profile_only",
+                "data_scope": "profile_only",
             }
         )
 
