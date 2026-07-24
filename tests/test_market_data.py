@@ -256,6 +256,23 @@ async def test_company_profile_tool_falls_back_to_fmp_profile() -> None:
 
 
 @pytest.mark.asyncio
+async def test_company_profile_tool_returns_none_without_configured_fallback() -> None:
+    primary = AsyncMock()
+    primary.get_company_profile.return_value = None
+
+    result = await CompanyProfileTool(
+        primary_provider=primary,
+        fallback_provider=None,
+    ).run(asset="AAPL", asset_type=AssetType.STOCK)
+
+    assert result is None
+    primary.get_company_profile.assert_awaited_once_with(
+        asset="AAPL",
+        asset_type=AssetType.STOCK,
+    )
+
+
+@pytest.mark.asyncio
 async def test_company_profile_tool_returns_none_when_both_unavailable() -> None:
     primary = AsyncMock()
     fallback = AsyncMock()

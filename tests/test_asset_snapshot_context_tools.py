@@ -63,6 +63,19 @@ async def test_company_peers_tool_returns_empty_peers_when_provider_fails() -> N
 
 
 @pytest.mark.asyncio
+async def test_company_peers_tool_returns_empty_peers_without_provider() -> None:
+    profile = make_profile()
+
+    result = await CompanyPeersTool(provider=None).run(
+        asset_profile_context=profile,
+    )
+
+    assert result.asset == "MA"
+    assert result.peers == []
+    assert result.provider == "unavailable"
+
+
+@pytest.mark.asyncio
 async def test_company_fundamentals_tool_returns_provider_context() -> None:
     provider = AsyncMock()
     context = CompanyFundamentalsContext(

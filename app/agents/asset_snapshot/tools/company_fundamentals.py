@@ -5,15 +5,14 @@ from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
 from app.market_data.providers import FundamentalsProvider
-from app.market_data.yfinance_provider import YFinanceCompanyProfileProvider
 
 
 class CompanyFundamentalsTool:
     def __init__(
         self,
-        provider: FundamentalsProvider | None = None,
+        provider: FundamentalsProvider,
     ) -> None:
-        self._provider = provider or YFinanceCompanyProfileProvider()
+        self._provider = provider
 
     async def run(
         self,

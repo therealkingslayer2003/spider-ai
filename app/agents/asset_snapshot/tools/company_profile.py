@@ -1,52 +1,49 @@
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
-from app.market_data.fmp_provider import FmpProvider
 from app.market_data.providers import CompanyProfileProvider
-from app.market_data.yfinance_provider import YFinanceCompanyProfileProvider
 
 
 class CompanyProfileTool:
     def __init__(
         self,
-        primary_provider: CompanyProfileProvider | None = None,
-        fallback_provider: CompanyProfileProvider | None = None,
-        market_data_provider: CompanyProfileProvider | None = None,
+        primary_provider: CompanyProfileProvider,
+        fallback_provider: CompanyProfileProvider | None,
     ) -> None:
-        self._primary_provider = (
-            primary_provider or market_data_provider or YFinanceCompanyProfileProvider()
-        )
-        self._fallback_provider = fallback_provider or FmpProvider()
+        self._primary_provider = primary_provider
+        self._fallback_provider = fallback_provider
 
     async def run(
         self,
         asset: str,
         asset_type: AssetType,
     ) -> AssetProfileContext | None:
-        try:
-            profile = await self._get_profile(self._primary_provider, asset, asset_type)
-            if profile is not None:
-                return profile
-        except Exception:
-            profile = None
+        profile = await self._try_provider(
+            provider=self._primary_provider,
+            asset=asset,
+            asset_type=asset_type,
+        )
+        if profile is not None:
+            return profile
 
-        try:
-            return await self._get_profile(self._fallback_provider, asset, asset_type)
-        except Exception:
+        if self._fallback_provider is None:
             return None
 
+        return await self._try_provider(
+            provider=self._fallback_provider,
+            asset=asset,
+            asset_type=asset_type,
+        )
+
     @staticmethod
-    async def _get_profile(
+    async def _try_provider(
         provider: CompanyProfileProvider,
         asset: str,
         asset_type: AssetType,
     ) -> AssetProfileContext | None:
-        if hasattr(provider, "get_company_profile"):
+        try:
             return await provider.get_company_profile(
                 asset=asset,
                 asset_type=asset_type,
             )
-
-        return await provider.get_asset_profile(  # type: ignore[attr-defined]
-            asset=asset,
-            asset_type=asset_type,
-        )
+        except Exception:
+            return None

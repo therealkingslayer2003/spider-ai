@@ -195,6 +195,11 @@ The graph depends on concrete capability tool classes, not provider protocols or
 vendor clients. Provider protocols remain in `app/market_data/providers.py`,
 where they describe the vendor-adapter boundary.
 
+Capability tools never construct providers internally. The API dependency
+composition root creates the shared yfinance provider and includes FMP only when
+it is configured. A configured profile fallback is still selected dynamically
+at request time when the primary provider fails or returns no usable profile.
+
 Provider responsibilities:
 
 - call concrete vendors such as yfinance or FMP

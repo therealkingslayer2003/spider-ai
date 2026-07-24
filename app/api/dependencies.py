@@ -43,8 +43,15 @@ def get_yfinance_provider() -> YFinanceCompanyProfileProvider:
 
 
 @cache
-def get_fmp_provider() -> FmpProvider:
+def get_optional_fmp_provider() -> FmpProvider | None:
     settings = get_settings()
+    if (
+        not settings.fmp_enabled
+        or not settings.fmp_api_key
+        or not settings.fmp_api_key.strip()
+    ):
+        return None
+
     return FmpProvider(
         cache=InMemoryTTLCache(
             ttl=timedelta(seconds=settings.fmp_cache_ttl_seconds),
@@ -53,7 +60,7 @@ def get_fmp_provider() -> FmpProvider:
 
 
 def get_company_peers_tool() -> CompanyPeersTool:
-    return CompanyPeersTool(provider=get_fmp_provider())
+    return CompanyPeersTool(provider=get_optional_fmp_provider())
 
 
 def get_company_fundamentals_tool() -> CompanyFundamentalsTool:
@@ -64,7 +71,7 @@ def get_company_fundamentals_tool() -> CompanyFundamentalsTool:
 def get_profile_tool() -> CompanyProfileTool:
     return CompanyProfileTool(
         primary_provider=get_yfinance_provider(),
-        fallback_provider=get_fmp_provider(),
+        fallback_provider=get_optional_fmp_provider(),
     )
 
 
