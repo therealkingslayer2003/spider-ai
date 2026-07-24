@@ -1,16 +1,10 @@
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class AssetSnapshotMode(str, Enum):
-    """Position mode for asset snapshot."""
-
-    SHORT = "short"
-    LONG = "long"
-
-
-class AssetType(str, Enum):
+class AssetType(str, Enum):  # noqa: UP042
     """Supported asset types."""
 
     STOCK = "stock"
@@ -21,19 +15,54 @@ class AssetType(str, Enum):
     FX = "fx"
 
 
-class ShortAssetSnapshot(BaseModel):
-    mode: AssetSnapshotMode
+class BaseAssetSnapshot(BaseModel):
     asset: str
     asset_type: AssetType
     summary: str
-    market_context: str
+    structural_drivers: list["StructuralDriver"]
+    structural_risks: list["StructuralRisk"]
     data_scope: str
 
 
-class LongAssetSnapshot(ShortAssetSnapshot):
+class StockAssetSnapshot(BaseAssetSnapshot):
     business_or_asset_profile: str
-    structural_drivers: list[str]
-    structural_risks: list[str]
+    market_context: str
+    competitive_landscape: list["CompetitivePeer"]
+
+
+class CompetitivePeer(BaseModel):
+    ticker: str | None = None
+    name: str
+    competition_area: str
+    why_competitor: str
+    why_it_matters: str
+
+
+class StructuralDriver(BaseModel):
+    title: str
+    explanation: str
+    materiality: Literal["low", "medium", "high"]
+
+    @field_validator("materiality", mode="before")
+    @classmethod
+    def normalize_materiality(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+
+class StructuralRisk(BaseModel):
+    title: str
+    explanation: str
+    materiality: Literal["low", "medium", "high"]
+    related_competitors: list[str] = Field(default_factory=list)
+
+    @field_validator("materiality", mode="before")
+    @classmethod
+    def normalize_materiality(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
 
 class AssetSnapshotRequest(BaseModel):
@@ -41,18 +70,15 @@ class AssetSnapshotRequest(BaseModel):
         ...,
         min_length=1,
         max_length=32,
-        description="Asset ticker, symbol, or identifier. Examples: NVDA, EUR/USD, GOLD, SPY.",
+        description=(
+            "Asset ticker, symbol, or identifier. Examples: NVDA, EUR/USD, GOLD, SPY."
+        ),
         examples=["NVDA"],
     )
     asset_type: AssetType = Field(
         ...,
         description="Asset class/type.",
         examples=[AssetType.STOCK],
-    )
-    mode: AssetSnapshotMode = Field(
-        ...,
-        description="Snapshot mode: short or long.",
-        examples=[AssetSnapshotMode.SHORT],
     )
 
     @field_validator("asset")

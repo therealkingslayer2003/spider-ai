@@ -1,8 +1,11 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+
+load_dotenv()
 
 
 def create_app() -> FastAPI:

@@ -56,19 +56,30 @@ flowchart TB
 ```
 ## Current Status
 
-This project is in active backend development.
+This project is a FastAPI backend for structured asset research workflows. The
+main implemented workflow is Asset Snapshot: it resolves an asset input,
+retrieves normalized provider context through capability tools, and asks a
+local Ollama LLM to synthesize a schema-validated structural snapshot.
+The workflow is routed through `AssetSnapshotRouterGraph`; only the stock
+subgraph is implemented today.
 
 ### Implemented
 
-- FastAPI backend with versioned API (`/api/v1`)
-- Local LLM integration through Ollama (`langchain-ollama`)
-- **Asset snapshot feature** — generate short or long structured profiles for any asset (stock, ETF, FX, crypto, commodity, index)
-- Chat endpoint for open-ended asset research queries
+- FastAPI backend
+- Local LLM integration through Ollama
+- LangChain `ChatOllama` client
+- LangGraph Asset Snapshot workflow
+- Asset Snapshot router graph with implemented stock subgraph
+- Optional ambiguous asset resolver before tool execution
+- yfinance-backed company profile provider for stocks
+- Optional FMP integration for profile fallback and peers
+- In-memory TTL caches for provider contexts
+- Structured `StockAssetSnapshot` output with profile, drivers, and risks
+- Rich terminal debug logs for workflow and LLM tracing
+- Basic chat endpoint
 - Health endpoint
-- Pydantic v2 request/response validation with enum-typed fields
-- FastAPI `Depends`-based dependency injection wired across all endpoints
-- Unit tests (25 tests, all passing)
-- `ruff` formatter and pre-push git hook for code quality
+- LangSmith observability integration
+- Production-minded project structure
 
 ## Run Locally
 
@@ -100,6 +111,54 @@ This project is in active backend development.
 
 6. Open interactive docs: http://localhost:8000/docs
 
+## Local Debug Logs
+
+Pretty terminal logs are enabled by default in local debug mode.
+
+Use these `.env` flags to control workflow tracing:
+
+```bash
+APP_PRETTY_LOGS=true
+APP_LOG_FLOW_STEPS=true
+APP_LOG_LLM_PROMPTS=false
+APP_LOG_LLM_OUTPUTS=false
+APP_LOG_PREVIEW_CHARS=600
+```
+
+Turn on `APP_LOG_LLM_PROMPTS=true` or `APP_LOG_LLM_OUTPUTS=true` when you need
+to inspect the exact prompt/output preview that went through Ollama. Keep them
+off for normal local runs if the payload may contain sensitive user input.
+
+## Market Data Providers
+
+yfinance is the default free company profile provider. FMP is optional and the
+project runs without it.
+
+To enable FMP peer context and profile fallback:
+
+```bash
+FMP_ENABLED=true
+FMP_API_KEY=your_fmp_api_key
+FMP_BASE_URL=https://financialmodelingprep.com/stable
+FMP_CACHE_TTL_SECONDS=86400
+```
+
+When FMP is disabled, missing, rate-limited, or incomplete, Asset Snapshot still
+runs. The graph continues with empty peers and optional yfinance financial
+signals. Static hardcoded peer and sector mappings are not used as production
+data sources.
+
+Asset Snapshot v1 intentionally stays business-model-first:
+
+- Core: company name, sector, industry, business summary, and country.
+- Optional enrichment: peers, market cap, operating margin, and debt-to-equity.
+- Nice-to-have when already returned by yfinance: revenue and revenue growth.
+- Not collected for v1: gross margin, net margin, or return on equity.
+
+A usable company profile is sufficient for a provider-grounded snapshot.
+Missing financial signals do not fail or downgrade the workflow; only a missing
+profile activates `model_static_knowledge_fallback`.
+
 ## Run with Docker Compose
 
 ```bash
@@ -111,7 +170,14 @@ docker compose up --build
 ## Run Tests
 
 ```bash
-uv run pytest -q
+uv run pytest
+```
+
+Live LLM resolver tests are opt-in because they call the configured Ollama
+model:
+
+```bash
+RUN_LIVE_LLM_RESOLVER_TESTS=true uv run pytest tests/test_asset_resolver_live.py -m live_llm -vv
 ```
 
 ## API Endpoints
@@ -128,61 +194,48 @@ uv run pytest -q
 curl http://localhost:8000/api/v1/health
 ```
 
-### Chat
+## Get Asset Snapshot
+
+```bash
+curl -X POST http://localhost:8000/api/v1/asset/snapshot \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asset": "NVDA",
+    "asset_type": "stock"
+  }'
+```
+
+The Asset Snapshot workflow currently supports `stock` assets through
+`StockSnapshotSubgraph`. yfinance provides the default company profile and any
+available optional financial signals. FMP can provide company peers and profile
+fallback. ETF, commodity, and crypto subgraphs are planned extension points but
+are not implemented yet; unsupported asset types return a controlled client
+error instead of falling through to stock logic.
+
+## Test Chat
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Give me a short research-style overview of NVIDIA.", "asset": "NVDA"}'
-```
-
-### Asset snapshot (short)
-
-```bash
-curl -X POST http://localhost:8000/api/v1/asset/snapshot \
-  -H "Content-Type: application/json" \
-  -d '{"asset": "NVDA", "asset_type": "stock", "mode": "short"}'
-```
-
-### Asset snapshot (long)
-
-```bash
-curl -X POST http://localhost:8000/api/v1/asset/snapshot \
-  -H "Content-Type: application/json" \
-  -d '{"asset": "BTC", "asset_type": "crypto", "mode": "long"}'
+  -d '{
+    "message": "Give me a research-style overview of NVIDIA.",
+    "asset": "NVDA"
+  }'
 ```
 
 ## Project Structure
 
 ```
 app/
-  main.py                         # FastAPI app factory
-  api/
-    dependencies.py               # FastAPI Depends providers
-    v1/
-      router.py                   # Mounts all v1 endpoint routers
-      endpoints/
-        health.py                 # GET  /api/v1/health
-        chat.py                   # POST /api/v1/chat
-        asset_snapshot.py         # POST /api/v1/asset/snapshot
-  core/                           # Config, logging, exceptions
-  domain/schemas/
-    asset_snapshot.py             # AssetSnapshot, ShortAssetSnapshot, LongAssetSnapshot, AssetSnapshotRequest
-    chat.py                       # ChatRequest, ChatResponse
-    health.py                     # HealthResponse
-  llm/
-    base.py                       # BaseChatModelClient (abstract)
-    ollama_client.py              # OllamaChatClient (langchain-ollama)
-    prompts/
-      feature_snapshot_prompt.py          # SHORT_ / LONG_ASSET_SNAPSHOT_PROMPT templates
-      feature_snapshot_prompt_builder.py  # AssetSnapshotPromptBuilder
-      system_prompts.py                   # BASE_SYSTEM_PROMPT
-  services/
-    chat_service.py               # ChatService
-    asset_snapshot_service.py     # AssetSnapshotService
-  tools/                          # Future: tool abstractions
-  retrieval/                      # Future: RAG
-  workflows/                      # Future: workflow orchestration
+  main.py               # FastAPI app factory
+  api/v1/               # HTTP layer — routers and endpoints
+  agents/               # Agent packages, including Asset Snapshot graphs/tools
+  core/                 # Config, logging, exceptions
+  domain/schemas/       # Pydantic request/response models
+  llm/                  # LLM provider abstractions
+  market_data/          # yfinance/FMP providers and caches
+  services/             # Business logic
+  agents/.../tools/     # Workflow-facing Asset Snapshot tools
 
 tests/                            # pytest suite (25 tests)
   test_health.py
@@ -219,14 +272,11 @@ python scripts/setup-hooks.py
 
 ## Roadmap
 
-- ~~Asset snapshot (short / long)~~ ✅
-- Thesis mode (bull / bear / risk)
-- Market data tools
-- RAG / retrieval
+- Broader market data coverage
+- Better ambiguous asset resolution
 - Evidence-aware answers
-- What changed mode
-- Evaluation & observability
-- Multi-agent debate mode
+- Evaluation
+- Additional workflow-level observability
 
 ---
 

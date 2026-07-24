@@ -3,27 +3,94 @@
 This document describes spider-ai — an asset market research copilot.
 
 ## Overview
-The project is a FastAPI application that delegates LLM calls to a local Ollama service. The codebase follows a layered structure and is containerized via Docker Compose.
+
+The project is a FastAPI application that delegates LLM calls to a local Ollama
+service. The codebase uses a vertical agent package for the Asset Snapshot
+capability: the router graph, stock subgraph, graph state, nodes, runner,
+resolver, and workflow-facing tools live together under
+`app/agents/asset_snapshot/`.
+
+Horizontal infrastructure remains outside the agent package. Market-data
+providers live in `app/market_data/`, LLM adapters live in `app/llm/`, Pydantic
+schemas live in `app/domain/schemas/`, and HTTP/service wiring lives in
+`app/api/` and `app/services/`.
 
 ### Request flow (high-level)
 
 ```
 Client -> HTTP -> FastAPI endpoints (app/api/v1/endpoints)
                              -> Services (app/services)
-                             -> LLM client (app/llm) -> Ollama (container)
+                             -> AssetSnapshotGraphRunner
+                             -> AssetSnapshotRouterGraph
+                             -> StockSnapshotSubgraph
+                             -> Capability tools
+                             -> Market data providers
+                             -> LLM client (app/llm) -> Ollama
 ```
 
 ## Main components
 
-- **API (service)**: `app/main.py` mounts the v1 router (`/api/v1`) defined at [app/api/v1/router.py](app/api/v1/router.py). Endpoints live under [app/api/v1/endpoints](app/api/v1/endpoints).
-- **Schemas**: Pydantic models in `app/domain/schemas/` (request/response shapes).
-- **Services**: Business logic lives in `app/services/` (e.g. `chat_service.py`). Services call LLM clients and other helpers.
+- **API**: `app/main.py` mounts the v1 router (`/api/v1`) defined at [app/api/v1/router.py](app/api/v1/router.py). Endpoints live under [app/api/v1/endpoints](app/api/v1/endpoints).
+- **Services**: `app/services/` owns application-level use cases. `AssetSnapshotService` delegates to the Asset Snapshot graph runner; `ChatService` calls the LLM client directly.
+- **Asset Snapshot agent**: `app/agents/asset_snapshot/` owns Asset Snapshot orchestration: router graph, stock subgraph, graph states, nodes, runner, resolver helpers, and capability tools.
+- **Capability tools**: `app/agents/asset_snapshot/tools/` exposes provider-normalized data to graph nodes through concrete tool classes such as `CompanyProfileTool`, `CompanyPeersTool`, and `CompanyFundamentalsTool`.
+- **Schemas**: Pydantic models in `app/domain/schemas/` define request/response models and normalized provider context.
+- **Market data**: `app/market_data/` contains provider protocols, in-memory TTL caches, the yfinance profile provider, and optional FMP provider.
 - **LLM clients**: Adapter layer in `app/llm/` (e.g. `ollama_client.py`) — wraps `langchain-ollama`/`ChatOllama`.
-- **Core**: `app/core/` contains configuration, logging, and shared utilities.
+- **Prompts**: `app/llm/prompts/` contains stock prompt construction and system prompts.
+- **Core**: `app/core/` contains configuration, rich terminal logging, and shared utilities.
+
+## Package boundaries
+
+The Asset Snapshot code follows a vertical feature-package style:
+
+```text
+app/agents/asset_snapshot/
+  runner.py                    # service-facing graph runner
+  asset_resolver.py             # ambiguous stock input pre-check helpers
+  router/
+    graph.py                    # top-level AssetSnapshotRouterGraph
+    routing.py                  # asset-type routing/finalization nodes
+    state.py                    # minimal router state
+  stock/
+    graph.py                    # StockSnapshotSubgraph wiring
+    nodes.py                    # stock-specific graph nodes
+    state.py                    # stock-specific graph state
+  tools/
+    company_profile.py          # yfinance primary, FMP fallback
+    company_peers.py            # FMP peers, empty fallback
+    company_fundamentals.py     # optional yfinance signals, empty fallback
+```
+
+Dependency direction:
+
+```text
+API endpoint
+  -> AssetSnapshotService
+  -> AssetSnapshotGraphRunner
+  -> AssetSnapshotRouterGraph
+  -> StockSnapshotSubgraph
+  -> Company*Tool classes
+  -> market_data providers
+```
+
+The router chooses the asset-domain workflow. Stock-specific prompts, nodes,
+fallback behavior, and tool calls stay inside the stock subgraph. Vendor API
+selection stays inside tools/providers.
 
 ## API surface (important endpoints)
 
 - `GET /api/v1/health` — health check, returns `{status: "ok", service: "<name>"}`.
+- `POST /api/v1/asset/snapshot` — runs the Asset Snapshot workflow. Expected JSON shape:
+
+```json
+{ "asset": "NVDA", "asset_type": "stock" }
+```
+
+Response model: `StockAssetSnapshot`, containing `summary`, `business_or_asset_profile`,
+`market_context`, `structural_drivers`, `structural_risks`, and
+`data_scope`.
+
 - `POST /api/v1/chat` — main chat endpoint. Expected JSON shape:
 
 ```json
@@ -33,6 +100,163 @@ Client -> HTTP -> FastAPI endpoints (app/api/v1/endpoints)
 Response model: `{ "answer": "<text>", "model": "<model-name>" }`.
 
 Note: `/chat` without the `/api/v1` prefix will return 404. The chat endpoint expects `POST`, not `GET`.
+
+## Asset Snapshot workflow
+
+External code calls only `AssetSnapshotService`, which delegates to
+`AssetSnapshotGraphRunner`. The runner invokes `AssetSnapshotRouterGraph`. The
+router chooses the asset-domain workflow and currently routes only `stock`
+requests into `StockSnapshotSubgraph`.
+
+```mermaid
+flowchart TD
+    API[Asset Snapshot API] --> Service[AssetSnapshotService]
+    Service --> Runner[AssetSnapshotGraphRunner]
+    Runner --> Router[AssetSnapshotRouterGraph]
+
+    Router -->|stock| StockGraph[StockSnapshotSubgraph]
+    Router -->|ETF - future| Unsupported[Unsupported Asset Type]
+    Router -->|commodity - future| Unsupported
+    Router -->|crypto - future| Unsupported
+
+    StockGraph --> Profile[CompanyProfileTool]
+    StockGraph --> Peers[CompanyPeersTool]
+    StockGraph --> Fundamentals[CompanyFundamentalsTool]
+
+    Profile --> YF[yfinance primary]
+    Profile --> FMPProfile[FMP fallback]
+    Peers --> FMPPeers[FMP primary]
+    Fundamentals --> YFSignals[yfinance optional signals]
+
+    StockGraph --> LLM[LLM generation]
+    LLM --> Validation[Pydantic validation]
+```
+
+Router node order:
+
+```
+request
+  -> route_asset_type
+  -> stock_snapshot_node, when asset_type == stock
+  -> finalize_router_result
+```
+
+Stock subgraph node order:
+
+```
+request
+  -> ambiguous_asset_resolution
+  -> company_profile
+  -> company_peers
+  -> fundamentals
+  -> generate_snapshot
+  -> validate_snapshot
+```
+
+Router state is intentionally minimal: request, selected asset type, validated
+output, and a controlled error string. It does not contain company profile,
+peers, fundamentals, prompts, raw LLM output, or selected providers.
+
+Stock state contains stock-specific workflow values such as optional
+`resolved_asset`, normalized `AssetProfileContext`, `CompanyPeersContext`,
+`CompanyFundamentalsContext`, generated prompt, raw LLM output, validated
+output, data scope, and errors.
+
+Important behavior:
+
+- Ticker-like stock inputs skip the LLM resolver.
+- Ambiguous stock inputs may call the LLM resolver before tool execution.
+- Resolver output is parsed as JSON, validated with Pydantic, and sanity-checked
+  before use.
+- Tool calls still happen after resolution attempts; the LLM resolver never
+  replaces market-data grounding.
+- Graph nodes are capability-based, not vendor-based. Vendor fallback belongs
+  inside tools/providers.
+- Peer and fundamentals tools derive their asset symbol from
+  `AssetProfileContext` when provider-grounded profile context exists. Without
+  a profile, they return empty fallback contexts and do not make symbol-only
+  provider calls.
+- If profile, peers, or fundamentals are missing, the graph continues with
+  explicit fallback context.
+- Unsupported asset types fail explicitly and do not execute stock logic.
+- The final LLM output is parsed defensively to tolerate fenced JSON, then
+  validated as `StockAssetSnapshot`.
+
+## Market data
+
+The stock subgraph calls Asset Snapshot capability tools:
+
+- `CompanyProfileTool`: yfinance primary, FMP fallback if configured.
+- `CompanyPeersTool`: FMP primary if configured, otherwise empty peers.
+- `CompanyFundamentalsTool`: selected optional signals already available from
+  yfinance, otherwise an empty normalized context.
+
+The graph depends on concrete capability tool classes, not provider protocols or
+vendor clients. Provider protocols remain in `app/market_data/providers.py`,
+where they describe the vendor-adapter boundary.
+
+Capability tools never construct providers internally. The API dependency
+composition root creates the shared yfinance provider and includes FMP only when
+it is configured. A configured profile fallback is still selected dynamically
+at request time when the primary provider fails or returns no usable profile.
+
+Provider responsibilities:
+
+- call concrete vendors such as yfinance or FMP
+- normalize raw vendor data into domain context schemas
+- avoid exposing raw yfinance/FMP responses outside providers
+- return `None` or empty contexts when no useful data is available
+
+yfinance is the required free/default profile provider for stocks and may also
+normalize selected optional signals from the same `.info` payload. FMP is
+limited to profile fallback and peers when `FMP_ENABLED=true` and `FMP_API_KEY`
+is set. It does not call premium ratios, growth, or income-statement endpoints
+for Asset Snapshot. Static hardcoded peer and sector mappings are not production
+data sources.
+
+`InMemoryTTLAssetProfileCache` caches successful yfinance profile contexts by
+`asset + asset_type`. The same yfinance provider instance caches normalized
+optional signals, avoiding a second `.info` call in the normal workflow.
+`InMemoryTTLCache` is also used for FMP contexts. Defaults are 24 hours and
+configurable via `ASSET_PROFILE_CACHE_TTL_SECONDS` and `FMP_CACHE_TTL_SECONDS`.
+
+### Frozen Asset Snapshot v1 data contract
+
+Asset Snapshot v1 is business-model-first. The company profile is the only
+core provider-grounded capability, with `business_summary` as its highest-value
+field alongside name, sector, industry, and country.
+
+- Optional enrichment: peers, market cap, operating margin, and debt-to-equity.
+- Nice-to-have when already available: revenue and revenue growth.
+- Outside the active v1 contract: gross margin, net margin, and return on equity.
+
+Missing peers or financial signals never makes a snapshot fail or become
+ungrounded. A usable company profile is sufficient for provider-grounded
+generation. If no profile is available, the graph uses
+`model_static_knowledge_fallback`.
+
+Deterministic `data_scope` values describe meaningful coverage rather than
+individual missing metrics: `profile_only`, `profile_with_peers`,
+`profile_with_financial_signals`,
+`profile_with_peers_and_financial_signals`, `fmp_profile_fallback`, or
+`model_static_knowledge_fallback`.
+
+## Prompting and validation
+
+`StockSnapshotPromptBuilder` builds the stock generation prompt from:
+
+- base system prompt
+- Asset Snapshot task prompt
+- normalized provider context when available
+- explicit fallback context when provider data is unavailable
+
+The LLM is never given raw vendor JSON. It receives clean provider context
+blocks for company profile, competitive context, and optional financial
+signals. The prompt explicitly makes the business model primary and uses
+financial values only as secondary materiality signals, never for valuation or
+investment advice.
+
+Final output must validate against `StockAssetSnapshot`.
 
 ## Docker / Runtime
 
@@ -74,9 +298,20 @@ docker compose exec ollama ollama pull llama3.1:8b
 Key environment variables (in `.env`):
 
 - `APP_NAME`, `APP_ENV`, `APP_DEBUG`
+- `APP_PRETTY_LOGS` — enables Rich-powered terminal logs.
+- `APP_LOG_FLOW_STEPS` — logs workflow breadcrumbs such as resolver,
+  company_profile, company_peers, fundamentals, LLM, and validation steps.
+- `APP_LOG_LLM_PROMPTS`, `APP_LOG_LLM_OUTPUTS` — opt-in prompt/output preview
+  logging. Keep disabled when payloads may contain sensitive input.
+- `APP_LOG_PREVIEW_CHARS` — max preview length for prompt/output logs.
 - `OLLAMA_BASE_URL` — base URL used by the API to reach Ollama. When running via Docker Compose set this to `http://ollama:11434` so the `api` container reaches the `ollama` container on the compose network (using `http://localhost:11434` from inside `api` will not reach the `ollama` container).
 - `OLLAMA_CHAT_MODEL` — model name expected by the code (e.g. `llama3.1:8b`).
 - `OLLAMA_TEMPERATURE` — sampling temperature.
+- `ASSET_PROFILE_CACHE_TTL_SECONDS` — TTL for cached market profile context.
+- `FMP_ENABLED` — enables optional FMP provider calls.
+- `FMP_API_KEY` — API key for Financial Modeling Prep.
+- `FMP_BASE_URL` — FMP API base URL.
+- `FMP_CACHE_TTL_SECONDS` — TTL for cached FMP contexts.
 - `API_V1_PREFIX` — currently `/api/v1`.
 
 ## Local development & common commands
@@ -105,9 +340,31 @@ docker compose exec ollama ollama pull <model-name>
 ```bash
 curl http://localhost:8000/api/v1/health
 
+curl -X POST http://localhost:8000/api/v1/asset/snapshot \
+    -H "Content-Type: application/json" \
+    -d '{"asset":"NVDA","asset_type":"stock"}'
+
 curl -X POST http://localhost:8000/api/v1/chat \
     -H "Content-Type: application/json" \
     -d '{"message":"Hello","asset":null}'
+```
+
+## Tests
+
+Run the normal test suite:
+
+```bash
+uv run pytest
+```
+
+The test suite disables LangSmith tracing through `tests/conftest.py` so unit
+tests do not emit traces or require network access.
+
+Live resolver accuracy tests are opt-in. They call the configured Ollama server
+and skip when Ollama or the configured model is unavailable:
+
+```bash
+RUN_LIVE_LLM_RESOLVER_TESTS=true uv run pytest tests/test_asset_resolver_live.py -m live_llm -vv
 ```
 
 ## Troubleshooting notes
@@ -116,14 +373,24 @@ curl -X POST http://localhost:8000/api/v1/chat \
 - `uvicorn: executable file not found` at container start usually meant the virtualenv's `bin` directory was not on `PATH`; the `Dockerfile` ensures `/app/.venv/bin` is included in `PATH`.
 - `All connection attempts failed` / `httpx.ConnectError` indicates the API cannot reach the configured `OLLAMA_BASE_URL`; ensure the env var points at the compose service hostname `ollama` when using Docker Compose.
 - `model '<name>' not found (404)` means the Ollama service is running but the requested model is not loaded — pull it into the `ollama` container using `ollama pull`.
+- Asset resolver outputs can be imperfect because the resolver is an LLM
+  pre-check. The workflow keeps provider/tool calls mandatory and validates
+  resolver output before using it.
 
 ## File layout (quick)
 
 - `app/main.py` — application factory and entrypoint
 - `app/api/v1/router.py` — API router mounting
-- `app/api/v1/endpoints/*.py` — endpoints (health, chat)
+- `app/api/v1/endpoints/*.py` — endpoints (health, chat, asset snapshot)
+- `app/agents/asset_snapshot/router/*.py` — top-level Asset Snapshot router graph
+- `app/agents/asset_snapshot/stock/*.py` — implemented stock snapshot subgraph
+- `app/agents/asset_snapshot/runner.py` — router graph runner
+- `app/agents/asset_snapshot/*.py` — package-level Asset Snapshot helpers such as the resolver
 - `app/services/*.py` — service layer (business logic)
 - `app/llm/*.py` — LLM client adapters (Ollama client)
+- `app/market_data/*.py` — yfinance/FMP providers and caches
+- `app/agents/asset_snapshot/tools/*.py` — workflow-facing Asset Snapshot tools
+- `tests/test_asset_resolver_live.py` — opt-in live LLM resolver tests
 - `pyproject.toml`, `uv.lock` — dependency declaration and lockfile
 - `Dockerfile`, `docker-compose.yml` — container build & orchestration
 
