@@ -1,0 +1,148 @@
+from datetime import UTC, datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from app.domain.schemas.asset_profile_context import AssetProfileContext
+from app.domain.schemas.asset_snapshot import (
+    AssetSnapshotRequest,
+    AssetType,
+    StockAssetSnapshot,
+)
+from app.domain.schemas.company_fundamentals_context import (
+    CompanyFundamentalsContext,
+)
+from app.domain.schemas.company_peer_context import CompanyPeersContext
+
+ReviewStatus = Literal["pending_manual_review", "approved", "rejected"]
+Provenance = Literal[
+    "synthetic_ai_generated",
+    "human",
+    "production_regression",
+]
+CaseKind = Literal["normal", "fallback", "contrast", "adversarial"]
+EntityKind = Literal["real", "fictional"]
+FixtureDataType = Literal["stable_qualitative", "synthetic", "mixed", "none"]
+
+
+class EvalCaseMetadata(BaseModel):
+    category: str
+    archetype: str
+    case_kind: CaseKind
+    entity_kind: EntityKind
+    provenance: Provenance
+    review_status: ReviewStatus
+    fixture_data_type: FixtureDataType
+    flags: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class EvalExpectations(BaseModel):
+    business_model_concepts: list[str] = Field(default_factory=list)
+    structural_driver_themes: list[str] = Field(default_factory=list)
+    structural_risk_themes: list[str] = Field(default_factory=list)
+    forbidden_claims: list[str] = Field(default_factory=list)
+    require_company_specificity: bool = True
+    require_structural_risks: bool = True
+    require_mechanism_explanation: bool = True
+    enforce_supplied_competitors_only: bool = False
+
+
+class StockSnapshotEvalCase(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_]+$")
+    metadata: EvalCaseMetadata
+    request: AssetSnapshotRequest
+    profile_fixture: AssetProfileContext | None = None
+    peers_fixture: CompanyPeersContext | None = None
+    fundamentals_fixture: CompanyFundamentalsContext | None = None
+    expectations: EvalExpectations
+
+    @model_validator(mode="after")
+    def validate_fixture_alignment(self) -> "StockSnapshotEvalCase":
+        if self.request.asset_type is not AssetType.STOCK:
+            raise ValueError("Stock Snapshot eval cases must use asset_type=stock")
+
+        expected_asset = self.request.asset.upper()
+        fixtures = (
+            self.profile_fixture,
+            self.peers_fixture,
+            self.fundamentals_fixture,
+        )
+        for fixture in fixtures:
+            if fixture is not None and fixture.asset.upper() != expected_asset:
+                raise ValueError(
+                    f"Fixture asset {fixture.asset!r} does not match "
+                    f"request asset {expected_asset!r}"
+                )
+
+        if self.profile_fixture is None:
+            if self.peers_fixture is not None and self.peers_fixture.peers:
+                raise ValueError("Peer fixtures require a profile fixture")
+            if self.fundamentals_fixture is not None and any(
+                value is not None
+                for value in (
+                    self.fundamentals_fixture.market_cap,
+                    self.fundamentals_fixture.operating_margin,
+                    self.fundamentals_fixture.debt_to_equity,
+                    self.fundamentals_fixture.revenue,
+                    self.fundamentals_fixture.revenue_growth,
+                )
+            ):
+                raise ValueError("Financial fixtures require a profile fixture")
+
+        return self
+
+
+class EvalMetricResult(BaseModel):
+    metric: str
+    score: float
+    passed: bool
+    reason: str | None = None
+    failure_labels: list[str] = Field(default_factory=list)
+
+
+class JudgeResult(BaseModel):
+    score: Literal[0, 1, 2]
+    reason: str
+
+
+class SemanticMetricResult(BaseModel):
+    metric: str
+    score: Literal[0, 1, 2]
+    reason: str
+    failure_labels: list[str] = Field(default_factory=list)
+
+
+class EvalCaseResult(BaseModel):
+    case_id: str
+    category: str
+    review_status: ReviewStatus
+    output: StockAssetSnapshot | None = None
+    deterministic_metrics: list[EvalMetricResult] = Field(default_factory=list)
+    semantic_metrics: list[SemanticMetricResult] = Field(default_factory=list)
+    failure_labels: list[str] = Field(default_factory=list)
+    latency_seconds: float
+    error: str | None = None
+
+
+class EvalAggregate(BaseModel):
+    deterministic_pass_rates: dict[str, float] = Field(default_factory=dict)
+    semantic_averages: dict[str, float] = Field(default_factory=dict)
+    weakest_cases: list[str] = Field(default_factory=list)
+
+
+class StockSnapshotEvalReport(BaseModel):
+    dataset_version: str
+    git_commit_sha: str | None
+    generation_model: str
+    judge_model: str | None
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    case_count: int
+    approved_case_count: int
+    pending_case_count: int
+    unreviewed_dataset_run: bool
+    deterministic_only: bool
+    total_runtime_seconds: float
+    average_latency_seconds: float
+    aggregate: EvalAggregate
+    cases: list[EvalCaseResult]

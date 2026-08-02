@@ -14,7 +14,7 @@ from app.agents.asset_snapshot.tools import (
     CompanyPeersTool,
     CompanyProfileTool,
 )
-from app.llm.ollama_client import OllamaChatClient
+from app.llm.base import BaseChatModelClient
 from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 
 
@@ -25,7 +25,7 @@ class StockSnapshotSubgraph:
         company_peers_tool: CompanyPeersTool,
         company_fundamentals_tool: CompanyFundamentalsTool,
         prompt_builder: StockSnapshotPromptBuilder,
-        llm_client: OllamaChatClient,
+        llm_client: BaseChatModelClient,
     ) -> None:
         self._company_profile_tool = company_profile_tool
         self._company_peers_tool = company_peers_tool

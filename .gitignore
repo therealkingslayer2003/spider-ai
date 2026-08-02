@@ -53,6 +53,7 @@ ollama-data/
 # Misc
 *.local
 instance/
+evals/reports/
 
 # Python wheel metadata
 pip-wheel-metadata/

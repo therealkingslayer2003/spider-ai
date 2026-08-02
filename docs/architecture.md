@@ -258,6 +258,40 @@ investment advice.
 
 Final output must validate against `StockAssetSnapshot`.
 
+## Asset Snapshot evaluation architecture
+
+`evals/asset_snapshot/` is an offline product-evaluation layer, not a production
+workflow branch. It assembles the real `AssetSnapshotRouterGraph` and
+`StockSnapshotSubgraph` with frozen provider implementations injected through
+the existing capability tools:
+
+```mermaid
+flowchart LR
+    Case["Versioned JSONL case"] --> Frozen["Frozen normalized providers"]
+    Frozen --> Tools["Production capability tools"]
+    Tools --> Stock["Production StockSnapshotSubgraph"]
+    Stock --> Router["Production AssetSnapshotRouterGraph"]
+    Router --> Output["StockAssetSnapshot"]
+    Output --> Deterministic["Deterministic graders"]
+    Output --> Judge["Independent LLM judges"]
+    Deterministic --> Report["JSON and Markdown report"]
+    Judge --> Report
+```
+
+The harness cannot use yfinance or FMP: cases provide normalized
+`AssetProfileContext`, `CompanyPeersContext`, and
+`CompanyFundamentalsContext` fixtures. This freezes the grounding input while
+preserving production orchestration, generation, and validation behavior.
+
+The v1 dataset is synthetic and not ground truth. Every generated case starts as
+`pending_manual_review`; default execution selects only `approved` cases.
+Running pending cases requires `--include-pending`, marks the report as
+unreviewed, and must not be used as a regression baseline. Deterministic graders
+cover schema, safety, required content, data scope, supplied numeric facts, and
+closed-set competitors. Independent structured LLM judges score semantic
+qualities such as business-model correctness, risk mechanisms, grounding, and
+company specificity without access to current market knowledge.
+
 ## Docker / Runtime
 
 - `docker-compose.yml` defines two services:

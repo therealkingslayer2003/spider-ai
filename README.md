@@ -180,6 +180,33 @@ model:
 RUN_LIVE_LLM_RESOLVER_TESTS=true uv run pytest tests/test_asset_resolver_live.py -m live_llm -vv
 ```
 
+## Asset Snapshot Evals
+
+The local Stock Asset Snapshot eval harness reuses the production router,
+subgraph, tools, prompt builder, and response schema while replacing market-data
+providers with frozen fixtures. Its synthetic v1 dataset is intentionally marked
+`pending_manual_review` and is excluded from default runs until a reviewer
+approves individual cases.
+
+```bash
+# Validate dataset structure and review metadata without calling an LLM
+uv run python -m evals.asset_snapshot.run --validate-only
+
+# Run approved cases only (the default)
+uv run python -m evals.asset_snapshot.run --dataset stock_snapshot_v1
+
+# Explicit non-baseline exploration of pending cases
+uv run python -m evals.asset_snapshot.run \
+  --dataset stock_snapshot_v1 \
+  --include-pending
+```
+
+See [`evals/README.md`](evals/README.md) and
+[`evals/datasets/stock_snapshot_v1_review.md`](evals/datasets/stock_snapshot_v1_review.md)
+for grader behavior, approval steps, and the manual-review checklist. Semantic
+evals use a separately configurable judge model and are never run implicitly by
+the test suite.
+
 ## API Endpoints
 
 | Method | Path | Description |
