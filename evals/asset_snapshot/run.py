@@ -1,12 +1,12 @@
 import argparse
 import asyncio
 import logging
-import os
 from pathlib import Path
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.llm.ollama_client import OllamaChatClient
+from evals.asset_snapshot.config import get_eval_settings
 from evals.asset_snapshot.dataset import (
     DATASET_VERSION,
     DEFAULT_DATASET_PATH,
@@ -31,7 +31,12 @@ NO_APPROVED_CASES_MESSAGE = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Stock Asset Snapshot evals")
     parser.add_argument("--dataset", default=DATASET_VERSION)
-    parser.add_argument("--case", dest="case_id")
+    parser.add_argument(
+        "--case",
+        dest="case_ids",
+        action="append",
+        help="case ID to run; repeat this option to select multiple cases",
+    )
     parser.add_argument("--category")
     parser.add_argument("--include-pending", action="store_true")
     parser.add_argument("--deterministic-only", action="store_true")
@@ -43,10 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
 async def run_from_args(args: argparse.Namespace) -> int:
     dataset_path = _dataset_path(args.dataset)
     logger.info(
-        "eval.cli.start dataset=%s case_id=%s category=%s include_pending=%s "
+        "eval.cli.start dataset=%s case_ids=%s category=%s include_pending=%s "
         "deterministic_only=%s validate_only=%s output=%s",
         dataset_path,
-        args.case_id,
+        args.case_ids,
         args.category,
         args.include_pending,
         args.deterministic_only,
@@ -76,17 +81,17 @@ async def run_from_args(args: argparse.Namespace) -> int:
     selected = select_cases(
         cases,
         include_pending=args.include_pending,
-        case_id=args.case_id,
+        case_ids=args.case_ids,
         category=args.category,
     )
     if not selected:
         logger.warning(
             "eval.cli.selection.empty dataset=%s approved=%s pending=%s "
-            "case_id=%s category=%s",
+            "case_ids=%s category=%s",
             dataset_path,
             counts["approved"],
             counts["pending_manual_review"],
-            args.case_id,
+            args.case_ids,
             args.category,
         )
         print(NO_APPROVED_CASES_MESSAGE)
@@ -101,13 +106,20 @@ async def run_from_args(args: argparse.Namespace) -> int:
         print("NON-BASELINE / UNREVIEWED DATASET")
 
     settings = get_settings()
+    eval_settings = get_eval_settings()
     generation_client = OllamaChatClient()
     semantic_graders = []
     judge_model = "not_run"
     if not args.deterministic_only:
+        configured_judge_model = (
+            eval_settings.eval_judge_model or settings.ollama_chat_model
+        )
+        configured_judge_base_url = (
+            eval_settings.eval_judge_base_url or settings.ollama_base_url
+        )
         judge_client = EvalOllamaClient(
-            model=os.getenv("EVAL_JUDGE_MODEL", settings.ollama_chat_model),
-            base_url=os.getenv("EVAL_JUDGE_BASE_URL", settings.ollama_base_url),
+            model=configured_judge_model,
+            base_url=configured_judge_base_url,
         )
         judge_model = judge_client.model_name
         semantic_graders = default_semantic_graders(judge_client)

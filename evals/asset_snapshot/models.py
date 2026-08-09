@@ -101,15 +101,22 @@ class EvalMetricResult(BaseModel):
     failure_labels: list[str] = Field(default_factory=list)
 
 
+class JudgeEvidence(BaseModel):
+    field_path: str = Field(min_length=1, max_length=200)
+    quote: str = Field(min_length=1, max_length=600)
+
+
 class JudgeResult(BaseModel):
     score: Literal[0, 1, 2]
     reason: str
+    evidence: list[JudgeEvidence] = Field(min_length=1)
 
 
 class SemanticMetricResult(BaseModel):
     metric: str
     score: Literal[0, 1, 2]
     reason: str
+    evidence: list[JudgeEvidence] = Field(min_length=1, max_length=3)
     failure_labels: list[str] = Field(default_factory=list)
 
 
@@ -120,6 +127,7 @@ class EvalCaseResult(BaseModel):
     output: StockAssetSnapshot | None = None
     deterministic_metrics: list[EvalMetricResult] = Field(default_factory=list)
     semantic_metrics: list[SemanticMetricResult] = Field(default_factory=list)
+    semantic_metrics_expected: int = Field(default=0, ge=0)
     failure_labels: list[str] = Field(default_factory=list)
     latency_seconds: float
     error: str | None = None

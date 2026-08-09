@@ -170,14 +170,32 @@ rubric-based `LLMJudgeGrader` instances for:
 - company specificity.
 
 Each judge returns the structured `JudgeResult` schema with a score of `0`, `1`,
-or `2` and a concise reason. The judge receives the request, normalized fixtures,
-expectations, generated snapshot, and one narrow rubric. It does not receive the
-production generation prompt and is instructed not to use current market
-knowledge.
+or `2`, a concise reason, and one to three evidence references. Every reference
+contains a snapshot `field_path` and a literal quote copied from that field, for
+example `structural_risks[0].explanation`. The evaluator verifies that each quote
+is really present in the generated `StockAssetSnapshot`; fabricated or
+paraphrased items are discarded. Container paths such as
+`structural_risks[0].related_competitors` are validated against their serialized
+list value. At most three valid, unique evidence items are retained; a metric
+fails only when the judge returns no evidence that can be verified against the
+snapshot.
+
+The judge receives the request, normalized fixtures, expectations, generated
+snapshot, and one narrow rubric. It does not receive the production generation
+prompt and is instructed not to use current market knowledge.
 
 [`asset_snapshot/eval_llm.py`](asset_snapshot/eval_llm.py) provides
 `EvalOllamaClient`, allowing `EVAL_JUDGE_MODEL` and `EVAL_JUDGE_BASE_URL` to be
 configured independently from the generation model.
+[`asset_snapshot/config.py`](asset_snapshot/config.py) loads those values from
+the process environment or the project `.env` file. Process environment values
+take precedence; empty values fall back to `OLLAMA_CHAT_MODEL` and
+`OLLAMA_BASE_URL`.
+
+```dotenv
+EVAL_JUDGE_MODEL=qwen3:8b
+EVAL_JUDGE_BASE_URL=http://localhost:11434
+```
 
 ### 10. Evaluation runner and aggregation
 
@@ -199,7 +217,14 @@ instead of terminating the complete run.
 [`asset_snapshot/reporting.py`](asset_snapshot/reporting.py) writes equivalent
 machine-readable JSON and human-readable Markdown reports. Reports include the
 dataset version, Git commit, model identifiers, review counts, latency,
-aggregate metrics, per-case failures, and weakest cases.
+aggregate metrics, and weakest cases. Every Markdown case section also shows:
+
+- its deterministic pass score and every deterministic metric result;
+- its semantic average, judge coverage such as `3/5 graded`, and every semantic
+  metric score;
+- the failure labels and judge reason attached to each metric;
+- exact, field-addressed excerpts from the core LLM snapshot supporting each
+  semantic judgment.
 
 Generated files are written under `evals/reports/` by default and ignored by
 Git. Runs containing pending cases are visibly marked:
@@ -288,6 +313,17 @@ Explore pending cases explicitly, without treating the report as a baseline:
 uv run python -m evals.asset_snapshot.run \
   --dataset stock_snapshot_v1 \
   --include-pending
+```
+
+Run an arbitrary subset by repeating `--case`. Cases execute once in dataset
+order, even when an ID is repeated on the command line:
+
+```bash
+uv run python -m evals.asset_snapshot.run \
+  --dataset stock_snapshot_v1 \
+  --case ma_payment_network_001 \
+  --case jpm_bank_001 \
+  --case cloudx_saas_001
 ```
 
 Do not run semantic evaluation against the generated v1 dataset until its cases

@@ -175,6 +175,9 @@ class StockSnapshotEvaluator:
                 category=case.metadata.category,
                 review_status=case.metadata.review_status,
                 output=None,
+                semantic_metrics_expected=(
+                    0 if deterministic_only else len(self._semantic_graders)
+                ),
                 failure_labels=["generation_failure"],
                 latency_seconds=latency,
                 error=str(exc),
@@ -218,12 +221,13 @@ class StockSnapshotEvaluator:
                     log = logger.info if semantic_result.score == 2 else logger.warning
                     log(
                         "eval.grader.semantic.result run_id=%s case_id=%s "
-                        "metric=%s score=%s labels=%s reason=%s",
+                        "metric=%s score=%s labels=%s evidence_paths=%s reason=%s",
                         run_id,
                         case.id,
                         semantic_result.metric,
                         semantic_result.score,
                         semantic_result.failure_labels,
+                        [evidence.field_path for evidence in semantic_result.evidence],
                         _compact(semantic_result.reason),
                     )
                 except JudgeEvaluationError as exc:
@@ -254,6 +258,9 @@ class StockSnapshotEvaluator:
             output=output,
             deterministic_metrics=deterministic_results,
             semantic_metrics=semantic_results,
+            semantic_metrics_expected=(
+                0 if deterministic_only else len(self._semantic_graders)
+            ),
             failure_labels=sorted(failure_labels),
             latency_seconds=latency,
             error="; ".join(judge_errors) if judge_errors else None,

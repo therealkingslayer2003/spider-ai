@@ -1,6 +1,6 @@
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -90,26 +90,27 @@ def select_cases(
     cases: Iterable[StockSnapshotEvalCase],
     *,
     include_pending: bool = False,
-    case_id: str | None = None,
+    case_ids: Collection[str] | None = None,
     category: str | None = None,
 ) -> list[StockSnapshotEvalCase]:
     allowed_statuses: set[ReviewStatus] = {"approved"}
     if include_pending:
         allowed_statuses.add("pending_manual_review")
+    requested_ids = set(case_ids or ())
 
     selected = [
         case
         for case in cases
         if case.metadata.review_status in allowed_statuses
-        and (case_id is None or case.id == case_id)
+        and (not requested_ids or case.id in requested_ids)
         and (category is None or case.metadata.category == category)
     ]
     logger.info(
         "eval.dataset.selection.complete selected=%s include_pending=%s "
-        "case_id=%s category=%s",
+        "case_ids=%s category=%s",
         len(selected),
         include_pending,
-        case_id,
+        sorted(requested_ids),
         category,
     )
     return selected

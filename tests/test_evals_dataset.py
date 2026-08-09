@@ -77,7 +77,7 @@ def test_category_and_case_filters_apply() -> None:
     one_case = select_cases(
         cases,
         include_pending=True,
-        case_id="ma_payment_network_001",
+        case_ids=["ma_payment_network_001"],
     )
 
     assert {case.id for case in payments} == {
@@ -85,6 +85,23 @@ def test_category_and_case_filters_apply() -> None:
         "novapay_network_001",
     }
     assert [case.id for case in one_case] == ["ma_payment_network_001"]
+
+
+def test_multiple_case_filter_preserves_dataset_order_and_deduplicates() -> None:
+    selected = select_cases(
+        load_dataset(),
+        include_pending=True,
+        case_ids=[
+            "cloudx_saas_001",
+            "ma_payment_network_001",
+            "cloudx_saas_001",
+        ],
+    )
+
+    assert [case.id for case in selected] == [
+        "ma_payment_network_001",
+        "cloudx_saas_001",
+    ]
 
 
 def test_approved_case_is_selected_by_default(tmp_path: Path) -> None:

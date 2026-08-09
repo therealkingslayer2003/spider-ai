@@ -156,7 +156,21 @@ class FakeJudgeClient(BaseChatModelClient):
 
 @pytest.mark.asyncio
 async def test_semantic_judge_parses_structured_result() -> None:
-    client = FakeJudgeClient(json.dumps({"score": 2, "reason": "Grounded."}))
+    evidence_quote = "Subscription software supports recurring revenue."
+    client = FakeJudgeClient(
+        json.dumps(
+            {
+                "score": 2,
+                "reason": "Grounded.",
+                "evidence": [
+                    {
+                        "field_path": "business_or_asset_profile",
+                        "quote": evidence_quote,
+                    }
+                ],
+            }
+        )
+    )
     grader = LLMJudgeGrader(
         metric="groundedness",
         rubric="0 bad, 1 partial, 2 grounded",
@@ -167,7 +181,141 @@ async def test_semantic_judge_parses_structured_result() -> None:
     result = await grader.grade(financial_case(), make_snapshot())
 
     assert result.score == 2
+    assert result.evidence[0].field_path == "business_or_asset_profile"
+    assert result.evidence[0].quote == evidence_quote
     assert "supplied request" in client.prompts[0]
+    assert "literal,\ncontiguous excerpt" in client.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_semantic_judge_failure_label_has_exact_snapshot_evidence() -> None:
+    evidence_quote = "Churn can reduce recurring revenue and pressure margins."
+    grader = LLMJudgeGrader(
+        metric="risk_mechanism_quality",
+        rubric="0 bad, 1 partial, 2 clear mechanism",
+        failure_label="weak_risk_mechanism",
+        client=FakeJudgeClient(
+            json.dumps(
+                {
+                    "score": 1,
+                    "reason": "The mechanism is incomplete.",
+                    "evidence": [
+                        {
+                            "field_path": "structural_risks[0].explanation",
+                            "quote": evidence_quote,
+                        }
+                    ],
+                }
+            )
+        ),
+    )
+
+    result = await grader.grade(financial_case(), make_snapshot())
+
+    assert result.failure_labels == ["weak_risk_mechanism"]
+    assert result.evidence[0].quote == evidence_quote
+
+
+@pytest.mark.asyncio
+async def test_semantic_judge_caps_excess_valid_evidence() -> None:
+    grader = LLMJudgeGrader(
+        metric="risk_mechanism_quality",
+        rubric="0 bad, 1 partial, 2 clear mechanism",
+        failure_label="weak_risk_mechanism",
+        client=FakeJudgeClient(
+            json.dumps(
+                {
+                    "score": 2,
+                    "reason": "Multiple passages support the score.",
+                    "evidence": [
+                        {
+                            "field_path": "summary",
+                            "quote": "A structurally focused company overview.",
+                        },
+                        {
+                            "field_path": "business_or_asset_profile",
+                            "quote": (
+                                "Subscription software supports recurring revenue."
+                            ),
+                        },
+                        {
+                            "field_path": "market_context",
+                            "quote": "enterprise software",
+                        },
+                        {
+                            "field_path": "structural_risks[0].explanation",
+                            "quote": "Churn can reduce recurring revenue",
+                        },
+                    ],
+                }
+            )
+        ),
+    )
+
+    result = await grader.grade(financial_case(), make_snapshot())
+
+    assert len(result.evidence) == 3
+    assert [evidence.field_path for evidence in result.evidence] == [
+        "summary",
+        "business_or_asset_profile",
+        "market_context",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_semantic_judge_accepts_literal_evidence_from_list_field() -> None:
+    snapshot = make_snapshot()
+    snapshot.structural_risks[0].related_competitors = ["ALPHA", "BETA"]
+    grader = LLMJudgeGrader(
+        metric="groundedness",
+        rubric="0 bad, 1 partial, 2 grounded",
+        failure_label="grounding_failure",
+        client=FakeJudgeClient(
+            json.dumps(
+                {
+                    "score": 2,
+                    "reason": "The named competitor is present in the snapshot.",
+                    "evidence": [
+                        {
+                            "field_path": ("structural_risks[0].related_competitors"),
+                            "quote": "ALPHA",
+                        }
+                    ],
+                }
+            )
+        ),
+    )
+
+    result = await grader.grade(financial_case(), snapshot)
+
+    assert result.evidence[0].field_path == ("structural_risks[0].related_competitors")
+    assert result.evidence[0].quote == "ALPHA"
+
+
+@pytest.mark.asyncio
+async def test_semantic_judge_rejects_fabricated_evidence() -> None:
+    grader = LLMJudgeGrader(
+        metric="groundedness",
+        rubric="0 bad, 1 partial, 2 grounded",
+        failure_label="grounding_failure",
+        client=FakeJudgeClient(
+            json.dumps(
+                {
+                    "score": 0,
+                    "reason": "Unsupported claim.",
+                    "evidence": [
+                        {
+                            "field_path": "summary",
+                            "quote": "This sentence is not in the snapshot.",
+                        }
+                    ],
+                }
+            )
+        ),
+    )
+
+    with pytest.raises(JudgeEvaluationError, match="not present"):
+        await grader.grade(financial_case(), make_snapshot())
 
 
 @pytest.mark.asyncio

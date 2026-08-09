@@ -11,8 +11,13 @@ from app.domain.schemas.asset_snapshot import StockAssetSnapshot
 from app.llm.base import BaseChatModelClient
 from evals.asset_snapshot.dataset import load_dataset
 from evals.asset_snapshot.frozen import build_frozen_execution
+from evals.asset_snapshot.models import JudgeEvidence, SemanticMetricResult
 from evals.asset_snapshot.reporting import write_report
-from evals.asset_snapshot.run import NO_APPROVED_CASES_MESSAGE, run_from_args
+from evals.asset_snapshot.run import (
+    NO_APPROVED_CASES_MESSAGE,
+    build_parser,
+    run_from_args,
+)
 from evals.asset_snapshot.runner import StockSnapshotEvaluator
 
 
@@ -60,6 +65,19 @@ class FakeGenerationClient(BaseChatModelClient):
                 "data_scope": self.data_scope,
             }
         )
+
+
+def test_cli_accepts_multiple_case_options() -> None:
+    args = build_parser().parse_args(
+        [
+            "--case",
+            "ma_payment_network_001",
+            "--case",
+            "jpm_bank_001",
+        ]
+    )
+
+    assert args.case_ids == ["ma_payment_network_001", "jpm_bank_001"]
 
 
 @pytest.mark.asyncio
@@ -178,7 +196,7 @@ async def test_default_cli_exits_before_constructing_models(
     dataset_path.write_text(pending_case.model_dump_json() + "\n", encoding="utf-8")
     args = argparse.Namespace(
         dataset=str(dataset_path),
-        case_id=None,
+        case_ids=None,
         category=None,
         include_pending=False,
         deterministic_only=False,
@@ -204,10 +222,37 @@ async def test_report_writes_json_and_markdown(tmp_path: Path) -> None:
         dataset_version="test_fixture",
         deterministic_only=True,
     )
+    report.cases[0].semantic_metrics = [
+        SemanticMetricResult(
+            metric="groundedness",
+            score=1,
+            reason="The explanation relies on a broad inference.",
+            evidence=[
+                JudgeEvidence(
+                    field_path="business_or_asset_profile",
+                    quote=(
+                        "The company earns recurring revenue from its supplied "
+                        "business activity."
+                    ),
+                )
+            ],
+            failure_labels=["grounding_failure"],
+        )
+    ]
+    report.cases[0].semantic_metrics_expected = 5
+    report.cases[0].failure_labels = ["grounding_failure"]
 
     json_path, markdown_path = write_report(report, tmp_path)
 
     assert json_path.exists()
     assert markdown_path.exists()
     assert "schema_validity" in json_path.read_text()
-    assert "Deterministic Metrics" in markdown_path.read_text()
+    markdown = markdown_path.read_text()
+    assert "Deterministic score: `7/7 (100.0%)`" in markdown
+    assert "Semantic score: `1.00 / 2 (1/5 graded)`" in markdown
+    assert "| `groundedness` | 1 / 2 | grounding_failure |" in markdown
+    assert "Source field: `business_or_asset_profile`" in markdown
+    assert (
+        "The company earns recurring revenue from its supplied business activity."
+        in markdown
+    )
