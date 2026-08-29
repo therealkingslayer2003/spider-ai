@@ -152,7 +152,7 @@ Asset Snapshot v1 intentionally stays business-model-first:
 
 - Core: company name, sector, industry, business summary, and country.
 - Optional enrichment: peers and yfinance revenue, revenue growth, operating
-  margin, and debt-to-equity.
+  margin, and normalized debt-to-equity ratio.
 - Financial metadata: reporting currency, latest fiscal-year end, and most
   recent quarter when supplied by yfinance.
 - Not collected for v1: gross margin, net margin, or return on equity.
@@ -166,6 +166,11 @@ business economics and structural drivers/risks. They are interpreted together
 with the company profile; they do not estimate fair value or determine whether
 a stock is cheap, expensive, bullish, or bearish. Market capitalization and
 valuation multiples are intentionally outside this Snapshot context.
+
+`debt_to_equity_ratio` is a normalized multiple: `2.0` means debt is
+approximately 2x shareholders' equity. The yfinance adapter converts Yahoo's
+percentage-style `debtToEquity` value before creating the domain context; for
+example, Yahoo `200` becomes Spider-AI `2.0`.
 
 The financial fields do not share an asserted global period. Revenue, growth,
 margin, and leverage may have different provider-defined temporal semantics;

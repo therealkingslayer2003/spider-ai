@@ -20,6 +20,9 @@ a baseline until a human reviewer approves them. Numeric values marked
 `SYNTHETIC_FINANCIAL_FIXTURE` exist only to test whether the model responds
 consistently to supplied context. Their financial currency and reporting dates
 are also synthetic fixture metadata, not captured provider facts.
+`debt_to_equity_ratio` values are normalized multiples: `2.0` means debt is
+approximately 2x shareholders' equity. They are not Yahoo percentage-style
+values.
 
 ## Review checklist
 

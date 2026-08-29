@@ -22,7 +22,7 @@ def test_fundamentals_schema_contains_only_v1_financial_signals() -> None:
         "revenue",
         "revenue_growth",
         "operating_margin",
-        "debt_to_equity",
+        "debt_to_equity_ratio",
         "financial_currency",
         "last_fiscal_year_end",
         "most_recent_quarter",
@@ -36,6 +36,7 @@ def test_fundamentals_schema_deserializes_reporting_metadata() -> None:
             "asset": "NVDA",
             "provider": "yfinance",
             "revenue": 100.0,
+            "debt_to_equity_ratio": 2.09,
             "financial_currency": "USD",
             "last_fiscal_year_end": "2025-01-26",
             "most_recent_quarter": "2025-07-27",
@@ -44,6 +45,8 @@ def test_fundamentals_schema_deserializes_reporting_metadata() -> None:
 
     assert context.last_fiscal_year_end == date(2025, 1, 26)
     assert context.most_recent_quarter == date(2025, 7, 27)
+    assert context.debt_to_equity_ratio == 2.09
+    assert "debt_to_equity" not in CompanyFundamentalsContext.model_fields
 
 
 def test_fundamentals_schema_optional_fields_default_to_none() -> None:

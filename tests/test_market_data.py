@@ -24,7 +24,7 @@ def raw_yfinance_info() -> dict[str, Any]:
         "country": "United States",
         "website": "https://www.apple.com",
         "operatingMargins": 0.31,
-        "debtToEquity": 145.8,
+        "debtToEquity": 209.0,
         "totalRevenue": 390_000_000_000,
         "revenueGrowth": 0.05,
         "financialCurrency": "USD",
@@ -128,12 +128,15 @@ async def test_yfinance_provider_normalizes_optional_financial_signals() -> None
     assert fundamentals.revenue == 390_000_000_000.0
     assert fundamentals.revenue_growth == 0.05
     assert fundamentals.operating_margin == 0.31
-    assert fundamentals.debt_to_equity == 145.8
+    assert fundamentals.debt_to_equity_ratio == 2.09
     assert fundamentals.financial_currency == "USD"
     assert fundamentals.last_fiscal_year_end == date(2024, 12, 31)
     assert fundamentals.most_recent_quarter == date(2025, 6, 30)
-    assert "market_cap" not in fundamentals.model_dump()
-    assert "marketCap" not in fundamentals.model_dump()
+    serialized = fundamentals.model_dump()
+    assert "debt_to_equity" not in serialized
+    assert "debtToEquity" not in serialized
+    assert "market_cap" not in serialized
+    assert "marketCap" not in serialized
     assert calls == ["AAPL"]
 
 
@@ -156,10 +159,41 @@ async def test_yfinance_provider_keeps_missing_optional_signals_none() -> None:
     assert fundamentals.revenue is None
     assert fundamentals.revenue_growth is None
     assert fundamentals.operating_margin is None
-    assert fundamentals.debt_to_equity is None
+    assert fundamentals.debt_to_equity_ratio is None
     assert fundamentals.financial_currency is None
     assert fundamentals.last_fiscal_year_end is None
     assert fundamentals.most_recent_quarter is None
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected_ratio"),
+    [
+        (0, 0.0),
+        (None, None),
+        ("not-a-number", None),
+        (True, None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_yfinance_provider_normalizes_debt_to_equity_ratio_edge_cases(
+    raw_value: object,
+    expected_ratio: float | None,
+) -> None:
+    calls: list[str] = []
+    provider = YFinanceCompanyProfileProvider(
+        ticker_factory=ticker_factory(
+            {
+                "longName": "Apple Inc.",
+                "debtToEquity": raw_value,
+            },
+            calls,
+        ),
+    )
+
+    profile = await provider.get_company_profile("AAPL", AssetType.STOCK)
+    fundamentals = await provider.get_fundamentals(profile)
+
+    assert fundamentals.debt_to_equity_ratio == expected_ratio
 
 
 @pytest.mark.asyncio
@@ -438,7 +472,7 @@ async def test_fmp_fundamentals_returns_empty_without_api_calls() -> None:
     assert context.revenue is None
     assert context.revenue_growth is None
     assert context.operating_margin is None
-    assert context.debt_to_equity is None
+    assert context.debt_to_equity_ratio is None
     assert context.financial_currency is None
     assert context.last_fiscal_year_end is None
     assert context.most_recent_quarter is None

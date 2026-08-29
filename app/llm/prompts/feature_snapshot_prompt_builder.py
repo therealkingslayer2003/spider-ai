@@ -139,7 +139,7 @@ class StockSnapshotPromptBuilder:
             "Revenue": self._format_number(context.revenue),
             "Revenue growth": self._format_ratio(context.revenue_growth),
             "Operating margin": self._format_ratio(context.operating_margin),
-            "Debt-to-equity": self._format_number(context.debt_to_equity),
+            "Debt-to-equity ratio": self._format_multiple(context.debt_to_equity_ratio),
             "Financial currency": context.financial_currency,
             "Latest fiscal year end": self._format_date(context.last_fiscal_year_end),
             "Most recent quarter": self._format_date(context.most_recent_quarter),
@@ -171,9 +171,12 @@ class StockSnapshotPromptBuilder:
             "and business model. Revenue provides scale context; revenue growth "
             "helps characterize growth or maturity; operating margin informs "
             "profitability, scalability, pricing power, and cost sensitivity; "
-            "debt-to-equity informs leverage and financing sensitivity. None is an "
-            "automatic good/bad or bullish/bearish signal. Do not invent missing "
-            "metrics or draw valuation, fair-value, or cheap/expensive conclusions."
+            "the debt-to-equity ratio informs capital structure and financing "
+            "dependence. Interpret leverage with the company's business model and "
+            "sector: a high ratio is not automatically a structural risk, and a "
+            "low ratio is not automatically evidence of safety. Do not invent "
+            "missing metrics, force leverage into the analysis when it is not "
+            "material, or draw valuation, fair-value, or cheap/expensive conclusions."
         )
 
     @staticmethod
@@ -191,7 +194,7 @@ class StockSnapshotPromptBuilder:
                     company_fundamentals_context.revenue,
                     company_fundamentals_context.revenue_growth,
                     company_fundamentals_context.operating_margin,
-                    company_fundamentals_context.debt_to_equity,
+                    company_fundamentals_context.debt_to_equity_ratio,
                 )
             )
         )
@@ -237,6 +240,10 @@ class StockSnapshotPromptBuilder:
     @staticmethod
     def _format_ratio(value: float | None) -> str | None:
         return f"{value:.2%}" if value is not None else None
+
+    @staticmethod
+    def _format_multiple(value: float | None) -> str | None:
+        return f"{value:.2f}x" if value is not None else None
 
     @staticmethod
     def _format_date(value: date | None) -> str | None:

@@ -227,7 +227,7 @@ core provider-grounded capability, with `business_summary` as its highest-value
 field alongside name, sector, industry, and country.
 
 - Optional enrichment: peers and yfinance revenue, revenue growth, operating
-  margin, and debt-to-equity.
+  margin, and normalized debt-to-equity ratio.
 - Financial metadata when supplied: reporting currency, latest fiscal-year end,
   and most recent quarter.
 - Outside the active v1 contract: gross margin, net margin, and return on equity.
@@ -262,6 +262,12 @@ Asset Snapshot fundamentals are not a valuation context. They must not estimate
 fair value, classify a stock as cheap or expensive, or turn high growth, high
 margin, or high leverage into automatic bullish/bearish conclusions. Market
 capitalization and valuation multiples belong outside this Snapshot contract.
+
+The domain field `debt_to_equity_ratio` is always an actual multiple: `2.0`
+means debt is approximately 2x shareholders' equity. Vendor adapters own any
+semantic conversion. In particular, the yfinance adapter normalizes Yahoo
+`debtToEquity=200` to `debt_to_equity_ratio=2.0`; tools, workflows, and prompts
+never handle Yahoo's percentage-style representation.
 
 `CompanyFundamentalsContext` intentionally has no global period type. Provider
 metrics can have mixed temporal semantics: revenue may be trailing, leverage

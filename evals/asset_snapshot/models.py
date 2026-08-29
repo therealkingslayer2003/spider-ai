@@ -84,7 +84,7 @@ class StockSnapshotEvalCase(BaseModel):
                     self.fundamentals_fixture.revenue,
                     self.fundamentals_fixture.revenue_growth,
                     self.fundamentals_fixture.operating_margin,
-                    self.fundamentals_fixture.debt_to_equity,
+                    self.fundamentals_fixture.debt_to_equity_ratio,
                 )
             ):
                 raise ValueError("Financial fixtures require a profile fixture")

@@ -194,6 +194,6 @@ def _financial_signal_count(
             fundamentals.revenue,
             fundamentals.revenue_growth,
             fundamentals.operating_margin,
-            fundamentals.debt_to_equity,
+            fundamentals.debt_to_equity_ratio,
         )
     )

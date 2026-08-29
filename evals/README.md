@@ -152,7 +152,7 @@ results should not require model judgment:
 - `RequiredFieldGrader` checks required product content.
 - `DataScopeGrader` applies production fallback rules.
 - `UnsupportedNumericClaimGrader` checks the four exposed operating-economics
-  signals: revenue, revenue growth, operating margin, and debt-to-equity.
+  signals: revenue, revenue growth, operating margin, and debt-to-equity ratio.
 - `ForbiddenClaimGrader` checks normalized case-specific mistakes.
 - `UnsupportedCompetitorGrader` enforces supplied peers for opted-in cases.
 

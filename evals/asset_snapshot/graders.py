@@ -279,7 +279,7 @@ class UnsupportedNumericClaimGrader:
             r"(?P<value>-?\d+(?:\.\d+)?)\s*(?P<percent>%)?",
             re.I,
         ),
-        "debt_to_equity": re.compile(
+        "debt_to_equity_ratio": re.compile(
             r"debt[-\s]+to[-\s]+equity.{0,35}?"
             r"(?P<value>-?\d+(?:\.\d+)?)",
             re.I,

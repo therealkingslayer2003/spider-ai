@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 
 ASSET_SNAPSHOT_PROMPT = """
 Your task is to generate a structured Asset Snapshot v1.
@@ -24,7 +25,9 @@ Safety / guardrail rules:
 - For stock snapshots, explain the company as a business, not as a trading recommendation.
 - Treat the company profile and business model as the primary basis of the analysis.
 - Treat financial fundamentals as supporting evidence for interpreting the economics of the already-understood business model, not the central subject.
-- Revenue may provide scale context; revenue growth may characterize growth or maturity; operating margin may inform scalability, pricing power, profitability, or cost sensitivity; debt-to-equity may inform leverage and financing sensitivity.
+- Revenue may provide scale context; revenue growth may characterize growth or maturity; operating margin may inform scalability, pricing power, profitability, or cost sensitivity.
+- Use the debt-to-equity ratio as supporting evidence about capital structure and financing dependence. Interpret it with the company's business model and sector. A high ratio is not automatically a structural risk, and a low ratio is not automatically evidence of safety.
+- Do not force leverage into the output when it is not material. When it is material, explain the mechanism, such as weaker operating cash generation -> reduced financial flexibility -> greater refinancing or debt-service pressure -> increased balance-sheet vulnerability.
 - Interpret every financial fundamental in a company- and sector-aware way. High margin is not automatically bullish, high growth is not automatically a good investment, and high debt is not automatically bad.
 - Do NOT perform valuation analysis, estimate fair value, decide whether the stock is cheap or expensive, or introduce P/E, P/S, EV/EBITDA, DCF, or price targets.
 

@@ -25,11 +25,13 @@ class CompanyFundamentalsContext(BaseModel):
             "Operating profitability evidence interpreted with the business model."
         ),
     )
-    debt_to_equity: float | None = Field(
+    debt_to_equity_ratio: float | None = Field(
         default=None,
         description=(
-            "Capital-structure evidence requiring company- and sector-aware "
-            "interpretation."
+            "Normalized debt-to-equity ratio expressed as a multiple, where 2.0 "
+            "means debt is approximately 2x shareholders' equity. Used as "
+            "supporting evidence about capital structure and financing dependence; "
+            "interpretation must remain business- and sector-aware."
         ),
     )
     financial_currency: str | None = Field(

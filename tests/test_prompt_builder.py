@@ -59,7 +59,7 @@ def fundamentals_context() -> CompanyFundamentalsContext:
         revenue=100.0,
         revenue_growth=0.1,
         operating_margin=0.3,
-        debt_to_equity=0.4,
+        debt_to_equity_ratio=2.09,
         financial_currency="USD",
         last_fiscal_year_end=date(2024, 12, 31),
         most_recent_quarter=date(2025, 6, 30),
@@ -138,7 +138,9 @@ def test_prompt_with_fundamentals_context_includes_metrics(
     assert "Revenue: 100" in prompt
     assert "Revenue growth: 10.00%" in prompt
     assert "Operating margin: 30.00%" in prompt
-    assert "Debt-to-equity: 0.4" in prompt
+    assert "Debt-to-equity ratio: 2.09x" in prompt
+    assert "Debt-to-equity ratio: 209x" not in prompt
+    assert "Debt-to-equity ratio: 209%" not in prompt
     assert "Financial currency: USD" in prompt
     assert "Latest fiscal year end: 2024-12-31" in prompt
     assert "Most recent quarter: 2025-06-30" in prompt
@@ -197,7 +199,7 @@ def test_prompt_includes_only_available_financial_signals(
 
     assert "Operating margin: 30.00%" in prompt
     assert "Market cap:" not in prompt
-    assert "Debt-to-equity:" not in prompt
+    assert "Debt-to-equity ratio:" not in prompt
     assert "Revenue:" not in prompt
     assert "Revenue growth:" not in prompt
     assert "Financial currency:" not in prompt

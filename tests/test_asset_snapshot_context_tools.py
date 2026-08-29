@@ -84,6 +84,7 @@ async def test_company_fundamentals_tool_returns_provider_context() -> None:
         provider="fmp",
         revenue=10.0,
         operating_margin=0.4,
+        debt_to_equity_ratio=2.09,
         financial_currency="USD",
         last_fiscal_year_end=date(2025, 12, 31),
     )
@@ -95,6 +96,7 @@ async def test_company_fundamentals_tool_returns_provider_context() -> None:
     )
 
     assert result == context
+    assert result.debt_to_equity_ratio == 2.09
     assert result.financial_currency == "USD"
     assert result.last_fiscal_year_end == date(2025, 12, 31)
     provider.get_fundamentals.assert_awaited_once_with(

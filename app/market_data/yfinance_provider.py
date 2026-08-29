@@ -187,7 +187,7 @@ class YFinanceCompanyProfileProvider:
             revenue=self._number(info.get("totalRevenue")),
             revenue_growth=self._number(info.get("revenueGrowth")),
             operating_margin=self._number(info.get("operatingMargins")),
-            debt_to_equity=self._number(info.get("debtToEquity")),
+            debt_to_equity_ratio=self._debt_to_equity_ratio(info.get("debtToEquity")),
             financial_currency=self._clean_string(info.get("financialCurrency")),
             last_fiscal_year_end=self._unix_date(info.get("lastFiscalYearEnd")),
             most_recent_quarter=self._unix_date(info.get("mostRecentQuarter")),
@@ -226,6 +226,15 @@ class YFinanceCompanyProfileProvider:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _debt_to_equity_ratio(value: Any) -> float | None:
+        raw_value = YFinanceCompanyProfileProvider._number(value)
+        if raw_value is None:
+            return None
+
+        # Yahoo reports debtToEquity in percentage points: 209 means 2.09x.
+        return raw_value / 100
 
     @staticmethod
     def _unix_date(value: Any) -> date | None:
