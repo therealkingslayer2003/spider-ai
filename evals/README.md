@@ -151,7 +151,8 @@ results should not require model judgment:
 - `SafetyGrader` detects narrow advice and prediction patterns.
 - `RequiredFieldGrader` checks required product content.
 - `DataScopeGrader` applies production fallback rules.
-- `UnsupportedNumericClaimGrader` checks the five exposed financial signals.
+- `UnsupportedNumericClaimGrader` checks the four exposed operating-economics
+  signals: revenue, revenue growth, operating margin, and debt-to-equity.
 - `ForbiddenClaimGrader` checks normalized case-specific mistakes.
 - `UnsupportedCompetitorGrader` enforces supplied peers for opted-in cases.
 

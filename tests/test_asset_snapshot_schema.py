@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
@@ -17,13 +19,40 @@ def test_fundamentals_schema_contains_only_v1_financial_signals() -> None:
     assert fields == {
         "asset",
         "provider",
-        "market_cap",
-        "operating_margin",
-        "debt_to_equity",
         "revenue",
         "revenue_growth",
+        "operating_margin",
+        "debt_to_equity",
+        "financial_currency",
+        "last_fiscal_year_end",
+        "most_recent_quarter",
         "fetched_at",
     }
+
+
+def test_fundamentals_schema_deserializes_reporting_metadata() -> None:
+    context = CompanyFundamentalsContext.model_validate(
+        {
+            "asset": "NVDA",
+            "provider": "yfinance",
+            "revenue": 100.0,
+            "financial_currency": "USD",
+            "last_fiscal_year_end": "2025-01-26",
+            "most_recent_quarter": "2025-07-27",
+        }
+    )
+
+    assert context.last_fiscal_year_end == date(2025, 1, 26)
+    assert context.most_recent_quarter == date(2025, 7, 27)
+
+
+def test_fundamentals_schema_optional_fields_default_to_none() -> None:
+    context = CompanyFundamentalsContext(asset="NVDA", provider="unavailable")
+
+    assert context.revenue is None
+    assert context.financial_currency is None
+    assert context.last_fiscal_year_end is None
+    assert "market_cap" not in context.model_dump()
 
 
 def test_asset_snapshot_validates_with_structured_fields() -> None:

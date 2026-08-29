@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 from urllib.parse import urlencode
@@ -23,11 +23,13 @@ def raw_yfinance_info() -> dict[str, Any]:
         "currency": "USD",
         "country": "United States",
         "website": "https://www.apple.com",
-        "marketCap": 3_000_000_000_000,
         "operatingMargins": 0.31,
         "debtToEquity": 145.8,
         "totalRevenue": 390_000_000_000,
         "revenueGrowth": 0.05,
+        "financialCurrency": "USD",
+        "lastFiscalYearEnd": 1_735_603_200,
+        "mostRecentQuarter": 1_751_241_600,
     }
 
 
@@ -85,7 +87,7 @@ async def test_yfinance_provider_requires_useful_company_profile_data() -> None:
     calls: list[str] = []
     provider = YFinanceCompanyProfileProvider(
         ticker_factory=ticker_factory(
-            {"exchange": "NMS", "currency": "USD", "marketCap": 1_000.0},
+            {"exchange": "NMS", "currency": "USD"},
             calls,
         ),
     )
@@ -123,11 +125,15 @@ async def test_yfinance_provider_normalizes_optional_financial_signals() -> None
     fundamentals = await provider.get_fundamentals(profile)
 
     assert fundamentals.provider == "yfinance"
-    assert fundamentals.market_cap == 3_000_000_000_000.0
-    assert fundamentals.operating_margin == 0.31
-    assert fundamentals.debt_to_equity == 145.8
     assert fundamentals.revenue == 390_000_000_000.0
     assert fundamentals.revenue_growth == 0.05
+    assert fundamentals.operating_margin == 0.31
+    assert fundamentals.debt_to_equity == 145.8
+    assert fundamentals.financial_currency == "USD"
+    assert fundamentals.last_fiscal_year_end == date(2024, 12, 31)
+    assert fundamentals.most_recent_quarter == date(2025, 6, 30)
+    assert "market_cap" not in fundamentals.model_dump()
+    assert "marketCap" not in fundamentals.model_dump()
     assert calls == ["AAPL"]
 
 
@@ -147,11 +153,38 @@ async def test_yfinance_provider_keeps_missing_optional_signals_none() -> None:
     profile = await provider.get_company_profile("AAPL", AssetType.STOCK)
     fundamentals = await provider.get_fundamentals(profile)
 
-    assert fundamentals.market_cap is None
-    assert fundamentals.operating_margin is None
-    assert fundamentals.debt_to_equity is None
     assert fundamentals.revenue is None
     assert fundamentals.revenue_growth is None
+    assert fundamentals.operating_margin is None
+    assert fundamentals.debt_to_equity is None
+    assert fundamentals.financial_currency is None
+    assert fundamentals.last_fiscal_year_end is None
+    assert fundamentals.most_recent_quarter is None
+
+
+@pytest.mark.asyncio
+async def test_yfinance_provider_handles_malformed_financial_metadata() -> None:
+    calls: list[str] = []
+    provider = YFinanceCompanyProfileProvider(
+        ticker_factory=ticker_factory(
+            {
+                "longName": "Apple Inc.",
+                "currency": "USD",
+                "financialCurrency": 123,
+                "lastFiscalYearEnd": "not-a-timestamp",
+                "mostRecentQuarter": -1,
+            },
+            calls,
+        ),
+    )
+
+    profile = await provider.get_company_profile("AAPL", AssetType.STOCK)
+    fundamentals = await provider.get_fundamentals(profile)
+
+    assert fundamentals.financial_currency is None
+    assert fundamentals.last_fiscal_year_end is None
+    assert fundamentals.most_recent_quarter is None
+    assert calls == ["AAPL"]
 
 
 @pytest.mark.asyncio
@@ -166,7 +199,8 @@ async def test_yfinance_provider_does_not_refetch_for_fmp_profile() -> None:
     fundamentals = await provider.get_fundamentals(profile)
 
     assert fundamentals.provider == "yfinance_unavailable"
-    assert fundamentals.market_cap is None
+    assert fundamentals.revenue is None
+    assert fundamentals.financial_currency is None
     assert calls == []
 
 
@@ -401,11 +435,13 @@ async def test_fmp_fundamentals_returns_empty_without_api_calls() -> None:
     context = await provider.get_fundamentals(asset_profile=profile)
 
     assert context.asset == "AAPL"
-    assert context.market_cap is None
-    assert context.operating_margin is None
-    assert context.debt_to_equity is None
     assert context.revenue is None
     assert context.revenue_growth is None
+    assert context.operating_margin is None
+    assert context.debt_to_equity is None
+    assert context.financial_currency is None
+    assert context.last_fiscal_year_end is None
+    assert context.most_recent_quarter is None
     assert client.urls == []
 
 

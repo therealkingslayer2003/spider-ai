@@ -191,10 +191,9 @@ def _financial_signal_count(
     return sum(
         value is not None
         for value in (
-            fundamentals.market_cap,
-            fundamentals.operating_margin,
-            fundamentals.debt_to_equity,
             fundamentals.revenue,
             fundamentals.revenue_growth,
+            fundamentals.operating_margin,
+            fundamentals.debt_to_equity,
         )
     )

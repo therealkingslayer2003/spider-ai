@@ -226,8 +226,10 @@ Asset Snapshot v1 is business-model-first. The company profile is the only
 core provider-grounded capability, with `business_summary` as its highest-value
 field alongside name, sector, industry, and country.
 
-- Optional enrichment: peers, market cap, operating margin, and debt-to-equity.
-- Nice-to-have when already available: revenue and revenue growth.
+- Optional enrichment: peers and yfinance revenue, revenue growth, operating
+  margin, and debt-to-equity.
+- Financial metadata when supplied: reporting currency, latest fiscal-year end,
+  and most recent quarter.
 - Outside the active v1 contract: gross margin, net margin, and return on equity.
 
 Missing peers or financial signals never makes a snapshot fail or become
@@ -252,9 +254,20 @@ individual missing metrics: `profile_only`, `profile_with_peers`,
 
 The LLM is never given raw vendor JSON. It receives clean provider context
 blocks for company profile, competitive context, and optional financial
-signals. The prompt explicitly makes the business model primary and uses
-financial values only as secondary materiality signals, never for valuation or
-investment advice.
+fundamentals. The prompt explicitly makes the business model primary and uses
+financial values only as quantitative evidence for interpreting scale, growth
+or maturity, operating economics, leverage, and financing sensitivity.
+
+Asset Snapshot fundamentals are not a valuation context. They must not estimate
+fair value, classify a stock as cheap or expensive, or turn high growth, high
+margin, or high leverage into automatic bullish/bearish conclusions. Market
+capitalization and valuation multiples belong outside this Snapshot contract.
+
+`CompanyFundamentalsContext` intentionally has no global period type. Provider
+metrics can have mixed temporal semantics: revenue may be trailing, leverage
+may be point-in-time, and growth may use a provider-specific comparison period.
+Fiscal-year-end and most-recent-quarter dates are preserved as provider metadata
+without claiming that every metric belongs to either date.
 
 Final output must validate against `StockAssetSnapshot`.
 

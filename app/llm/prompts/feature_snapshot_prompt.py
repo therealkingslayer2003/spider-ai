@@ -1,4 +1,3 @@
-# ruff: noqa: E501
 
 ASSET_SNAPSHOT_PROMPT = """
 Your task is to generate a structured Asset Snapshot v1.
@@ -24,7 +23,10 @@ Safety / guardrail rules:
 - Do NOT mention recent price moves, latest earnings, latest news, or current valuation unless provided in context.
 - For stock snapshots, explain the company as a business, not as a trading recommendation.
 - Treat the company profile and business model as the primary basis of the analysis.
-- Treat financial metrics as optional calibration signals, not the central subject.
+- Treat financial fundamentals as supporting evidence for interpreting the economics of the already-understood business model, not the central subject.
+- Revenue may provide scale context; revenue growth may characterize growth or maturity; operating margin may inform scalability, pricing power, profitability, or cost sensitivity; debt-to-equity may inform leverage and financing sensitivity.
+- Interpret every financial fundamental in a company- and sector-aware way. High margin is not automatically bullish, high growth is not automatically a good investment, and high debt is not automatically bad.
+- Do NOT perform valuation analysis, estimate fair value, decide whether the stock is cheap or expensive, or introduce P/E, P/S, EV/EBITDA, DCF, or price targets.
 
 Output requirements:
 - Return ONLY valid JSON.
@@ -34,9 +36,10 @@ Output requirements:
 - Prefer specific competitor names and tickers when provided.
 - Named peers in competitive_landscape should come from the provided competitive landscape context.
 - If peer context is empty, do not invent obscure competitors.
-- If optional financial signals are empty, continue from the company profile without interpreting their absence.
-- Use supplied financial signals only for stable structural interpretation, not valuation or investment advice.
+- If supporting financial fundamentals are empty, continue from the company profile without interpreting their absence.
+- Use supplied financial fundamentals only as quantitative evidence for company-specific structural interpretation, never as standalone good/bad signals or valuation evidence.
 - Avoid vague risks such as "competition", "regulation", or "technology change" unless each risk explains the concrete mechanism.
+- Drivers and risks should follow: business characteristic or structural pressure -> company exposure or dependency -> transmission mechanism -> economic consequence.
 - Every structural risk must explain what can go wrong, why it matters, which business area is affected, and materiality.
 - Every structural driver and structural risk must use materiality: "low", "medium", or "high".
 - data_scope must be exactly: "{data_scope}".
@@ -81,7 +84,7 @@ Field requirements:
 - "asset_type": must match the provided asset type.
 - "summary": 2-4 sentences explaining what the company is, what it represents, and why it is relevant.
 - "business_or_asset_profile": explain the business model, major economic engines, customer/merchant/user relationships, and economic role.
-- "market_context": explain sector, industry, and regulatory context using the company profile and optional financial signals when available.
+- "market_context": explain sector, industry, and regulatory context using the company profile and supporting financial fundamentals when available.
 - "competitive_landscape": include named competitors from provided peer context when available; explain why each competitor matters.
 - "structural_drivers": list 3-6 long-term or recurring drivers with concrete mechanisms and materiality.
 - "structural_risks": list 3-6 structural risks with concrete mechanisms, affected business area, materiality, and related_competitors when applicable.

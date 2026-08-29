@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import AsyncMock
 
 import pytest
@@ -83,6 +84,8 @@ async def test_company_fundamentals_tool_returns_provider_context() -> None:
         provider="fmp",
         revenue=10.0,
         operating_margin=0.4,
+        financial_currency="USD",
+        last_fiscal_year_end=date(2025, 12, 31),
     )
     provider.get_fundamentals.return_value = context
     profile = make_profile()
@@ -92,6 +95,8 @@ async def test_company_fundamentals_tool_returns_provider_context() -> None:
     )
 
     assert result == context
+    assert result.financial_currency == "USD"
+    assert result.last_fiscal_year_end == date(2025, 12, 31)
     provider.get_fundamentals.assert_awaited_once_with(
         asset_profile=profile,
     )

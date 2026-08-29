@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import yfinance  # type: ignore[import-untyped]
@@ -184,11 +184,13 @@ class YFinanceCompanyProfileProvider:
         return CompanyFundamentalsContext(
             asset=asset,
             provider="yfinance",
-            market_cap=self._number(info.get("marketCap")),
-            operating_margin=self._number(info.get("operatingMargins")),
-            debt_to_equity=self._number(info.get("debtToEquity")),
             revenue=self._number(info.get("totalRevenue")),
             revenue_growth=self._number(info.get("revenueGrowth")),
+            operating_margin=self._number(info.get("operatingMargins")),
+            debt_to_equity=self._number(info.get("debtToEquity")),
+            financial_currency=self._clean_string(info.get("financialCurrency")),
+            last_fiscal_year_end=self._unix_date(info.get("lastFiscalYearEnd")),
+            most_recent_quarter=self._unix_date(info.get("mostRecentQuarter")),
             fetched_at=datetime.now(UTC),
         )
 
@@ -223,4 +225,17 @@ class YFinanceCompanyProfileProvider:
         try:
             return float(value)
         except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _unix_date(value: Any) -> date | None:
+        if isinstance(value, bool) or value is None:
+            return None
+
+        try:
+            timestamp = float(value)
+            if timestamp <= 0:
+                return None
+            return datetime.fromtimestamp(timestamp, tz=UTC).date()
+        except (OSError, OverflowError, TypeError, ValueError):
             return None

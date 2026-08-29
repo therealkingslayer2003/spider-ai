@@ -145,19 +145,32 @@ FMP_CACHE_TTL_SECONDS=86400
 
 When FMP is disabled, missing, rate-limited, or incomplete, Asset Snapshot still
 runs. The graph continues with empty peers and optional yfinance financial
-signals. Static hardcoded peer and sector mappings are not used as production
+fundamentals. Static hardcoded peer and sector mappings are not used as production
 data sources.
 
 Asset Snapshot v1 intentionally stays business-model-first:
 
 - Core: company name, sector, industry, business summary, and country.
-- Optional enrichment: peers, market cap, operating margin, and debt-to-equity.
-- Nice-to-have when already returned by yfinance: revenue and revenue growth.
+- Optional enrichment: peers and yfinance revenue, revenue growth, operating
+  margin, and debt-to-equity.
+- Financial metadata: reporting currency, latest fiscal-year end, and most
+  recent quarter when supplied by yfinance.
 - Not collected for v1: gross margin, net margin, or return on equity.
 
 A usable company profile is sufficient for a provider-grounded snapshot.
 Missing financial signals do not fail or downgrade the workflow; only a missing
 profile activates `model_static_knowledge_fallback`.
+
+Asset Snapshot fundamentals provide quantitative context for understanding
+business economics and structural drivers/risks. They are interpreted together
+with the company profile; they do not estimate fair value or determine whether
+a stock is cheap, expensive, bullish, or bearish. Market capitalization and
+valuation multiples are intentionally outside this Snapshot context.
+
+The financial fields do not share an asserted global period. Revenue, growth,
+margin, and leverage may have different provider-defined temporal semantics;
+the supplied fiscal-year and quarter dates are reference metadata, not proof
+that every metric belongs to the same reporting period.
 
 ## Run with Docker Compose
 
@@ -234,10 +247,10 @@ curl -X POST http://localhost:8000/api/v1/asset/snapshot \
 
 The Asset Snapshot workflow currently supports `stock` assets through
 `StockSnapshotSubgraph`. yfinance provides the default company profile and any
-available optional financial signals. FMP can provide company peers and profile
-fallback. ETF, commodity, and crypto subgraphs are planned extension points but
-are not implemented yet; unsupported asset types return a controlled client
-error instead of falling through to stock logic.
+available supporting financial fundamentals. FMP can provide company peers and
+profile fallback. ETF, commodity, and crypto subgraphs are planned extension
+points but are not implemented yet; unsupported asset types return a controlled
+client error instead of falling through to stock logic.
 
 ## Test Chat
 

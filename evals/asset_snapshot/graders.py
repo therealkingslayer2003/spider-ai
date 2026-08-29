@@ -289,12 +289,6 @@ class UnsupportedNumericClaimGrader:
             r"(?P<value>-?\d+(?:\.\d+)?)\s*(?P<percent>%)?",
             re.I,
         ),
-        "market_cap": re.compile(
-            r"market\s+cap(?:italization)?.{0,35}?"
-            r"(?P<value>-?\d[\d,]*(?:\.\d+)?)\s*"
-            r"(?P<unit>thousand|million|billion|trillion)?",
-            re.I,
-        ),
         "revenue": re.compile(
             r"\brevenue(?!\s+growth).{0,35}?"
             r"(?P<value>-?\d[\d,]*(?:\.\d+)?)\s*"

@@ -107,8 +107,8 @@ def test_unsupported_numeric_claim_grader_rejects_wrong_metric() -> None:
     assert "hallucinated_metric" in result.failure_labels
 
 
-def test_unsupported_numeric_claim_grader_accepts_scaled_currency_metric() -> None:
-    snapshot = make_snapshot(risk_text="Market cap is $4 billion.")
+def test_unsupported_numeric_claim_grader_accepts_scaled_revenue_metric() -> None:
+    snapshot = make_snapshot(risk_text="Revenue is $900 million.")
 
     result = UnsupportedNumericClaimGrader().grade(financial_case(), snapshot)
 

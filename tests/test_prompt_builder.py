@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from app.domain.schemas.asset_profile_context import AssetProfileContext
@@ -54,11 +56,13 @@ def fundamentals_context() -> CompanyFundamentalsContext:
     return CompanyFundamentalsContext(
         asset="NVDA",
         provider="fmp",
-        market_cap=1_000_000.0,
-        operating_margin=0.3,
-        debt_to_equity=0.4,
         revenue=100.0,
         revenue_growth=0.1,
+        operating_margin=0.3,
+        debt_to_equity=0.4,
+        financial_currency="USD",
+        last_fiscal_year_end=date(2024, 12, 31),
+        most_recent_quarter=date(2025, 6, 30),
     )
 
 
@@ -130,10 +134,16 @@ def test_prompt_with_fundamentals_context_includes_metrics(
         company_fundamentals_context=fundamentals_context,
     )
 
-    assert "3. OPTIONAL FINANCIAL SIGNALS" in prompt
-    assert "market_cap" in prompt
-    assert "operating_margin" in prompt
-    assert "optional calibration signals" in prompt
+    assert "3. SUPPORTING FINANCIAL FUNDAMENTALS" in prompt
+    assert "Revenue: 100" in prompt
+    assert "Revenue growth: 10.00%" in prompt
+    assert "Operating margin: 30.00%" in prompt
+    assert "Debt-to-equity: 0.4" in prompt
+    assert "Financial currency: USD" in prompt
+    assert "Latest fiscal year end: 2024-12-31" in prompt
+    assert "Most recent quarter: 2025-06-30" in prompt
+    assert "market_cap" not in prompt
+    assert "quantitative supporting evidence" in prompt
     assert "profile_with_financial_signals" in prompt
 
 
@@ -165,7 +175,7 @@ def test_prompt_is_business_model_first(
     )
 
     assert "company profile and business model are the primary basis" in prompt
-    assert "Financial metrics are optional calibration signals" in prompt
+    assert "Financial fundamentals are quantitative supporting evidence" in prompt
 
 
 def test_prompt_includes_only_available_financial_signals(
@@ -185,11 +195,12 @@ def test_prompt_includes_only_available_financial_signals(
         company_fundamentals_context=fundamentals,
     )
 
-    assert "operating_margin: 0.3" in prompt
-    assert "market_cap:" not in prompt
-    assert "debt_to_equity:" not in prompt
-    assert "revenue:" not in prompt
-    assert "revenue_growth:" not in prompt
+    assert "Operating margin: 30.00%" in prompt
+    assert "Market cap:" not in prompt
+    assert "Debt-to-equity:" not in prompt
+    assert "Revenue:" not in prompt
+    assert "Revenue growth:" not in prompt
+    assert "Financial currency:" not in prompt
 
 
 def test_removed_financial_metrics_are_absent_from_prompt(
@@ -227,7 +238,7 @@ def test_removed_financial_metrics_are_absent_from_prompt(
             CompanyFundamentalsContext(
                 asset="NVDA",
                 provider="yfinance",
-                market_cap=1_000.0,
+                revenue=1_000.0,
             ),
             "profile_with_financial_signals",
         ),
@@ -282,6 +293,55 @@ def test_empty_financial_context_does_not_change_profile_scope(
     )
 
 
+def test_financial_metadata_without_numeric_signals_does_not_change_scope(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    fundamentals = CompanyFundamentalsContext(
+        asset="NVDA",
+        provider="yfinance",
+        financial_currency="USD",
+        last_fiscal_year_end=date(2024, 12, 31),
+    )
+
+    assert (
+        builder.data_scope(
+            asset_profile_context=profile_context,
+            company_peers_context=None,
+            company_fundamentals_context=fundamentals,
+        )
+        == "profile_only"
+    )
+
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_fundamentals_context=fundamentals,
+    )
+    assert "Financial currency: USD" in prompt
+    assert "Latest fiscal year end: 2024-12-31" in prompt
+
+
+def test_prompt_formats_large_revenue_without_scientific_notation(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+) -> None:
+    prompt = builder.build_prompt(
+        "NVDA",
+        AssetType.STOCK,
+        asset_profile_context=profile_context,
+        company_fundamentals_context=CompanyFundamentalsContext(
+            asset="NVDA",
+            provider="yfinance",
+            revenue=39_331_000_000,
+        ),
+    )
+
+    assert "Revenue: 39,331,000,000" in prompt
+    assert "e+" not in prompt
+
+
 def test_prompt_uses_fmp_profile_fallback_scope(
     builder: StockSnapshotPromptBuilder,
     profile_context: AssetProfileContext,
@@ -304,6 +364,9 @@ def test_prompt_includes_risk_mechanism_guardrails(
 
     assert "Avoid vague risks" in prompt
     assert "Every structural risk must explain" in prompt
+    assert "company exposure or dependency" in prompt
+    assert "high debt is not automatically bad" in prompt
+    assert "P/E, P/S, EV/EBITDA, DCF" in prompt
     assert "No buy/sell/hold" not in prompt
 
 

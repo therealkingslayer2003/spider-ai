@@ -18,7 +18,8 @@ Every initial case has:
 These cases are not validated financial truth and must not be used to establish
 a baseline until a human reviewer approves them. Numeric values marked
 `SYNTHETIC_FINANCIAL_FIXTURE` exist only to test whether the model responds
-consistently to supplied context.
+consistently to supplied context. Their financial currency and reporting dates
+are also synthetic fixture metadata, not captured provider facts.
 
 ## Review checklist
 

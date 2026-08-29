@@ -81,11 +81,10 @@ class StockSnapshotEvalCase(BaseModel):
             if self.fundamentals_fixture is not None and any(
                 value is not None
                 for value in (
-                    self.fundamentals_fixture.market_cap,
-                    self.fundamentals_fixture.operating_margin,
-                    self.fundamentals_fixture.debt_to_equity,
                     self.fundamentals_fixture.revenue,
                     self.fundamentals_fixture.revenue_growth,
+                    self.fundamentals_fixture.operating_margin,
+                    self.fundamentals_fixture.debt_to_equity,
                 )
             ):
                 raise ValueError("Financial fixtures require a profile fixture")
