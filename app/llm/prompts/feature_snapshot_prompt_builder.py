@@ -42,24 +42,8 @@ class StockSnapshotPromptBuilder:
             self._build_profile_context_section(asset_profile_context),
             "2. COMPETITIVE CONTEXT",
             self._build_peer_context_section(company_peers_context),
-            "3. SUPPORTING FINANCIAL FUNDAMENTALS",
-            self._build_fundamentals_context_section(company_fundamentals_context),
-            "4. Output requirements",
-            (
-                "Use the required JSON schema above. Make risks and drivers "
-                "specific, materiality-labeled, and mechanism-based. The company "
-                "profile and business model are the primary basis of the structural "
-                "analysis. Financial fundamentals are quantitative supporting "
-                "evidence for interpreting business economics, not standalone "
-                "bullish/bearish or valuation signals."
-            ),
-            "5. Safety / guardrail rules",
-            (
-                "Do not provide investment advice, live market claims, recent "
-                "news claims, price targets, or buy/sell/hold recommendations."
-            ),
-            "6. JSON schema",
-            f"data_scope must be exactly: {data_scope}",
+            "3. FINANCIAL FUNDAMENTALS",
+            self._build_fundamentals_context_section(company_fundamentals_context)
         ]
         prompt += "\n\n" + "\n".join(context_sections)
 
@@ -167,16 +151,6 @@ class StockSnapshotPromptBuilder:
             f"Asset: {context.asset}\n"
             f"Fetched at: {context.fetched_at.isoformat()}\n"
             f"Financial fundamentals:\n{formatted}\n"
-            "Interpret these values only together with the supplied company profile "
-            "and business model. Revenue provides scale context; revenue growth "
-            "helps characterize growth or maturity; operating margin informs "
-            "profitability, scalability, pricing power, and cost sensitivity; "
-            "the debt-to-equity ratio informs capital structure and financing "
-            "dependence. Interpret leverage with the company's business model and "
-            "sector: a high ratio is not automatically a structural risk, and a "
-            "low ratio is not automatically evidence of safety. Do not invent "
-            "missing metrics, force leverage into the analysis when it is not "
-            "material, or draw valuation, fair-value, or cheap/expensive conclusions."
         )
 
     @staticmethod
