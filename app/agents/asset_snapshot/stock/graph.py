@@ -50,11 +50,12 @@ class StockSnapshotSubgraph:
                 self._company_fundamentals_tool,
             )
 
-        async def generate_stock_snapshot_wrapper(state: StockSnapshotState):
+        async def generate_stock_snapshot_wrapper(state: StockSnapshotState, with_evidence: bool = False):
             return await generate_stock_snapshot_node(
                 state,
                 self._llm_client,
                 self._prompt_builder,
+                with_evidence=with_evidence
             )
 
         graph = StateGraph(StockSnapshotState)
@@ -78,5 +79,5 @@ class StockSnapshotSubgraph:
 
         return graph.compile()
 
-    async def ainvoke(self, state: StockSnapshotState) -> StockSnapshotState:
-        return await self.graph.ainvoke(state)
+    async def ainvoke(self, state: StockSnapshotState, with_evidence: bool = False) -> StockSnapshotState:
+        return await self.graph.ainvoke(state, with_evidence=with_evidence)

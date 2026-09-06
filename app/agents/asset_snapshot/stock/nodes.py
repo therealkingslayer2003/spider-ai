@@ -197,6 +197,7 @@ async def generate_stock_snapshot_node(
     state: StockSnapshotState,
     llm: BaseChatModelClient,
     prompt_builder: StockSnapshotPromptBuilder,
+    with_evidence: bool = False,
 ) -> StockSnapshotState:
     request = state["request"]
     asset = state.get("resolved_asset") or request.asset
@@ -208,6 +209,7 @@ async def generate_stock_snapshot_node(
         asset_profile_context=state.get("asset_profile_context"),
         company_peers_context=state.get("company_peers_context"),
         company_fundamentals_context=state.get("company_fundamentals_context"),
+        with_evidence=with_evidence
     )
 
     data_scope = prompt_builder.data_scope(

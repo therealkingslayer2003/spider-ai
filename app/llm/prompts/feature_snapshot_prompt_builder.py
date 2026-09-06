@@ -20,6 +20,7 @@ class StockSnapshotPromptBuilder:
         asset_profile_context: AssetProfileContext | None = None,
         company_peers_context: CompanyPeersContext | None = None,
         company_fundamentals_context: CompanyFundamentalsContext | None = None,
+        with_evidence: bool = False
     ) -> str:
         data_scope = self.data_scope(
             asset_profile_context=asset_profile_context,

@@ -16,6 +16,8 @@ dependencies = [
     "yfinance>=1.4.1",
     "langsmith>=0.1.0",
     "rich",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20",
 ]
 
 [dependency-groups]

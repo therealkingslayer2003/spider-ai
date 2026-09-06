@@ -26,5 +26,6 @@ async def finalize_router_result(
 ) -> AssetSnapshotRouterState:
     return {
         "validated_output": state.get("validated_output"),
+        "snapshot_evidence": state.get("snapshot_evidence"),
         "error": state.get("error"),
     }

@@ -8,6 +8,7 @@ from app.agents.asset_snapshot.router.routing import (
 )
 from app.agents.asset_snapshot.router.state import AssetSnapshotRouterState
 from app.agents.asset_snapshot.stock.graph import StockSnapshotSubgraph
+from app.domain.schemas.snapshot_evidence import SnapshotEvidence
 
 
 class AssetSnapshotRouterGraph:
@@ -16,16 +17,31 @@ class AssetSnapshotRouterGraph:
         self.graph = self._build_graph()
 
     def _build_graph(self):
-        async def stock_snapshot_node(state: AssetSnapshotRouterState):
+        async def stock_snapshot_node(state: AssetSnapshotRouterState, with_evidence: bool = False) -> AssetSnapshotRouterState:
             stock_state = await self._stock_snapshot_subgraph.ainvoke(
                 {
                     "request": state["request"],
                     "errors": [],
-                }
+                },
+                with_evidence=with_evidence
             )
             errors = stock_state.get("errors", [])
+            validated_output = stock_state.get("validated_output")
+            snapshot_evidence = None
+
+            if validated_output is not None and with_evidence:
+                snapshot_evidence = SnapshotEvidence(
+                    asset_profile_context=stock_state.get("asset_profile_context"),
+                    company_peers_context=stock_state.get("company_peers_context"),
+                    company_fundamentals_context=stock_state.get(
+                        "company_fundamentals_context"
+                    ),
+                    data_scope=stock_state.get("data_scope")
+                    or validated_output.data_scope,
+                )
             return {
-                "validated_output": stock_state.get("validated_output"),
+                "validated_output": validated_output,
+                "snapshot_evidence": snapshot_evidence,
                 "error": "; ".join(errors) if errors else None,
             }
 
@@ -52,5 +68,6 @@ class AssetSnapshotRouterGraph:
     async def ainvoke(
         self,
         state: AssetSnapshotRouterState,
+        with_evidence: bool = False
     ) -> AssetSnapshotRouterState:
-        return await self.graph.ainvoke(state)
+        return await self.graph.ainvoke(state, with_evidence=with_evidence)

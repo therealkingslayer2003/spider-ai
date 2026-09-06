@@ -53,6 +53,11 @@ ollama-data/
 
 # Misc
 *.local
+*.db
+*.db-shm
+*.db-wal
+data/*
+!data/.gitkeep
 instance/
 evals/reports/
 

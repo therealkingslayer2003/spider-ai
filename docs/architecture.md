@@ -13,7 +13,8 @@ resolver, and workflow-facing tools live together under
 Horizontal infrastructure remains outside the agent package. Market-data
 providers live in `app/market_data/`, LLM adapters live in `app/llm/`, Pydantic
 schemas live in `app/domain/schemas/`, and HTTP/service wiring lives in
-`app/api/` and `app/services/`.
+`app/api/` and `app/services/`. Local SQLAlchemy/SQLite persistence lives in
+`app/infrastructure/db/`.
 
 ### Request flow (high-level)
 
@@ -26,6 +27,7 @@ Client -> HTTP -> FastAPI endpoints (app/api/v1/endpoints)
                              -> Capability tools
                              -> Market data providers
                              -> LLM client (app/llm) -> Ollama
+                             -> validated snapshot persistence -> SQLite
 ```
 
 ## Main components
@@ -39,6 +41,8 @@ Client -> HTTP -> FastAPI endpoints (app/api/v1/endpoints)
 - **LLM clients**: Adapter layer in `app/llm/` (e.g. `ollama_client.py`) — wraps `langchain-ollama`/`ChatOllama`.
 - **Prompts**: `app/llm/prompts/` contains stock prompt construction and system prompts.
 - **Core**: `app/core/` contains configuration, rich terminal logging, and shared utilities.
+- **Persistence**: `app/infrastructure/db/` contains the async SQLite engine,
+  SQL migrations, typed ORM models, and focused DAO classes.
 
 ## Package boundaries
 
@@ -72,6 +76,11 @@ API endpoint
   -> StockSnapshotSubgraph
   -> Company*Tool classes
   -> market_data providers
+
+Validated result
+  -> SnapshotArtifactPersistenceService
+  -> focused DAOs
+  -> SQLite
 ```
 
 The router chooses the asset-domain workflow. Stock-specific prompts, nodes,
@@ -154,8 +163,9 @@ request
 ```
 
 Router state is intentionally minimal: request, selected asset type, validated
-output, and a controlled error string. It does not contain company profile,
-peers, fundamentals, prompts, raw LLM output, or selected providers.
+output, an opaque frozen `SnapshotEvidence` bundle, and a controlled error
+string. Individual company profile, peers, fundamentals, prompts, raw LLM
+output, and selected providers are not exposed as router-state fields.
 
 Stock state contains stock-specific workflow values such as optional
 `resolved_asset`, normalized `AssetProfileContext`, `CompanyPeersContext`,
@@ -277,6 +287,90 @@ without claiming that every metric belongs to either date.
 
 Final output must validate against `StockAssetSnapshot`.
 
+## Research artifact persistence
+
+SQLite is used because Spider-AI is currently a local-first, single-user
+application. It provides durable indexed local reads without another service,
+and keeps the initial artifact lineage relational and inspectable. SQLAlchemy
+uses the async `sqlite+aiosqlite` driver.
+
+The FastAPI lifespan initializes the database at `SPIDER_AI_DB_PATH`, defaulting
+to `<project-root>/data/spider-ai.db`. `Database.initialize()` applies the
+readable SQL scripts in `app/infrastructure/db/migrations/`; the persistence
+service also calls it defensively when used outside FastAPI startup.
+
+```mermaid
+erDiagram
+    ASSET_TYPE ||--o{ ASSET : categorizes
+    ASSET ||--o{ RESEARCH_ARTIFACT : owns
+    ASSET ||--o{ EVIDENCE : owns
+    RESEARCH_ARTIFACT ||--o| SNAPSHOT_RESEARCH_ARTIFACT : specializes
+    EVIDENCE ||--o| SNAPSHOT_RESEARCH_ARTIFACT : grounds
+
+    ASSET_TYPE {
+        int id PK
+        string name UK
+        string description
+    }
+    ASSET {
+        int id PK
+        int asset_type_id FK
+        string name
+        datetime added_at
+    }
+    RESEARCH_ARTIFACT {
+        int id PK
+        int asset_id FK
+        datetime created_at
+        datetime data_as_of
+        string model
+        string prompt_version
+    }
+    EVIDENCE {
+        int id PK
+        int asset_id FK
+        text context_json
+        datetime created_at
+    }
+    SNAPSHOT_RESEARCH_ARTIFACT {
+        int research_artifact_id PK
+        int evidence_id FK
+        text output_json
+        text rationale
+    }
+```
+
+`SnapshotEvidence` stores only normalized Spider-AI contexts and their nested
+provider provenance. It does not store raw yfinance/FMP payloads or the rendered
+LLM prompt. Restored snapshot JSON is validated back into
+`StockAssetSnapshot`; restored evidence is validated back into
+`SnapshotEvidence`.
+
+`SnapshotArtifactPersistenceService` owns one transaction:
+
+```text
+get/create AssetType
+  -> get/create Asset by (asset_type_id, name)
+  -> create Evidence
+  -> create ResearchArtifact
+  -> create SnapshotResearchArtifact
+  -> commit
+```
+
+Any failure rolls back the entire aggregate. Rationale is nullable and no
+second LLM call is made. The public API still returns only
+`StockAssetSnapshot`.
+
+Foreign keys use conservative `ON DELETE RESTRICT` behavior. Assets, evidence,
+and parent artifacts cannot be removed while history refers to them; no delete
+DAO is exposed. `evidence_id` is unique in the snapshot subtype, enforcing the
+current one-evidence-bundle-per-research-step model.
+
+Runtime connections enable `foreign_keys`, WAL journal mode, and a 5-second
+busy timeout. Composite indexes support latest research/evidence lookups by
+asset and creation time. The schema intentionally has no `artifact_type`
+column, Claim table, M:N evidence table, or Thesis/Debate subtype yet.
+
 ## Asset Snapshot evaluation architecture
 
 `evals/asset_snapshot/` is an offline product-evaluation layer, not a production
@@ -314,7 +408,7 @@ company specificity without access to current market knowledge.
 ## Docker / Runtime
 
 - `docker-compose.yml` defines two services:
-    - `api` (built from the repo) — container_name `spider-ai`, exposes `8000:8000`, uses `.env` via `env_file` and depends on `ollama`.
+    - `api` (built from the repo) — container_name `spider-ai`, exposes `8000:8000`, uses `.env` via `env_file`, bind-mounts the repository `data/` directory for SQLite persistence, and depends on `ollama`.
     - `ollama` — image `ollama/ollama:latest`, exposes `11434:11434`, stores models in a Docker volume `ollama-data`.
 
 - `Dockerfile` (API image) key points:
@@ -366,6 +460,8 @@ Key environment variables (in `.env`):
 - `FMP_BASE_URL` — FMP API base URL.
 - `FMP_CACHE_TTL_SECONDS` — TTL for cached FMP contexts.
 - `API_V1_PREFIX` — currently `/api/v1`.
+- `SPIDER_AI_DB_PATH` — local SQLite file path; defaults to
+  `<project-root>/data/spider-ai.db`.
 
 ## Local development & common commands
 

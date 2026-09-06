@@ -12,6 +12,7 @@ from app.agents.asset_snapshot.tools import (
     CompanyProfileTool,
 )
 from app.core.config import get_settings
+from app.infrastructure.db.database import Database
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 from app.market_data.cache import InMemoryTTLAssetProfileCache, InMemoryTTLCache
@@ -19,6 +20,9 @@ from app.market_data.fmp_provider import FmpProvider
 from app.market_data.yfinance_provider import YFinanceCompanyProfileProvider
 from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.chat_service import ChatService
+from app.services.snapshot_artifact_persistence_service import (
+    SnapshotArtifactPersistenceService,
+)
 
 
 def get_ollama_client() -> OllamaChatClient:
@@ -27,6 +31,21 @@ def get_ollama_client() -> OllamaChatClient:
 
 def get_stock_prompt_builder() -> StockSnapshotPromptBuilder:
     return StockSnapshotPromptBuilder()
+
+
+@cache
+def get_database() -> Database:
+    return Database(path=get_settings().spider_ai_db_path)
+
+
+@cache
+def get_snapshot_artifact_persistence_service() -> SnapshotArtifactPersistenceService:
+    settings = get_settings()
+    return SnapshotArtifactPersistenceService(
+        database=get_database(),
+        model=settings.ollama_chat_model,
+        prompt_version="stock_snapshot_v1",
+    )
 
 
 @cache
@@ -115,5 +134,11 @@ def get_chat_service(
 
 def get_asset_snapshot_service(
     graph_runner: AssetSnapshotGraphRunner = Depends(get_graph_runner),
+    persistence_service: SnapshotArtifactPersistenceService = Depends(
+        get_snapshot_artifact_persistence_service
+    ),
 ) -> AssetSnapshotService:
-    return AssetSnapshotService(graph_runner=graph_runner)
+    return AssetSnapshotService(
+        graph_runner=graph_runner,
+        persistence_service=persistence_service,
+    )

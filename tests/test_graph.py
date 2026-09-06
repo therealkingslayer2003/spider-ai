@@ -195,6 +195,35 @@ async def test_router_returns_stock_subgraph_validated_output() -> None:
 
 
 @pytest.mark.asyncio
+async def test_router_freezes_exact_stock_contexts_as_evidence() -> None:
+    output = StockAssetSnapshot.model_validate(
+        json.loads(llm_response(data_scope="profile_with_peers_and_financial_signals"))
+    )
+    profile = make_profile()
+    peers = make_peers()
+    fundamentals = make_fundamentals()
+    stock_subgraph = AsyncMock()
+    stock_subgraph.ainvoke.return_value = {
+        "validated_output": output,
+        "asset_profile_context": profile,
+        "company_peers_context": peers,
+        "company_fundamentals_context": fundamentals,
+        "data_scope": output.data_scope,
+        "errors": [],
+    }
+    router = AssetSnapshotRouterGraph(stock_snapshot_subgraph=stock_subgraph)
+
+    final_state = await router.ainvoke({"request": make_request()})
+
+    evidence = final_state["snapshot_evidence"]
+    assert evidence is not None
+    assert evidence.asset_profile_context == profile
+    assert evidence.company_peers_context == peers
+    assert evidence.company_fundamentals_context == fundamentals
+    assert evidence.data_scope == output.data_scope
+
+
+@pytest.mark.asyncio
 async def test_router_unsupported_asset_type_raises_controlled_error() -> None:
     stock_subgraph = AsyncMock()
     router = AssetSnapshotRouterGraph(stock_snapshot_subgraph=stock_subgraph)

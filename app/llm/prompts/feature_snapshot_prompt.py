@@ -440,7 +440,7 @@ Before returning the JSON, verify internally:
   stable fallback knowledge?
 
 
-## OUTPUT RULES
+# OUTPUT RULES
 
 - Return ONLY valid JSON.
 - Do not include markdown.

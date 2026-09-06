@@ -74,6 +74,7 @@ subgraph is implemented today.
 - yfinance-backed company profile provider for stocks
 - Optional FMP integration for profile fallback and peers
 - In-memory TTL caches for provider contexts
+- Local SQLite persistence for validated Asset Snapshot research artifacts
 - Structured `StockAssetSnapshot` output with profile, drivers, and risks
 - Rich terminal debug logs for workflow and LLM tracing
 - Basic chat endpoint
@@ -110,6 +111,35 @@ subgraph is implemented today.
    ```
 
 6. Open interactive docs: http://localhost:8000/docs
+
+## Local Research Persistence
+
+Validated Asset Snapshots are stored locally in SQLite after generation and
+Pydantic validation succeed. No separate database server is required.
+
+The default location is:
+
+```text
+./data/spider-ai.db
+```
+
+Override it in `.env` when needed:
+
+```bash
+SPIDER_AI_DB_PATH=/absolute/path/to/spider-ai.db
+```
+
+FastAPI startup creates the parent directory and applies pending SQL migrations.
+To initialize a development database, start the API normally. To reset it, stop
+the API and delete the configured database file; startup will recreate it.
+Docker Compose bind-mounts the repository's `data/` directory at `/app/data`,
+so the same database remains visible on the host and survives container recreation.
+
+Each persisted snapshot consists of a generic research artifact, one snapshot
+subtype row, the validated `StockAssetSnapshot` JSON, and a frozen JSON bundle
+of the normalized profile, peers, fundamentals, and `data_scope` used during
+generation. Raw provider payloads, rendered prompts, chain-of-thought, and
+database identifiers are not included in the public Snapshot response.
 
 ## Local Debug Logs
 

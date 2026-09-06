@@ -1,6 +1,13 @@
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def default_database_path() -> Path:
+    project_root = Path(__file__).resolve().parents[2]
+    return project_root / "data" / "spider-ai.db"
 
 
 class Settings(BaseSettings):
@@ -14,6 +21,8 @@ class Settings(BaseSettings):
     app_log_preview_chars: int = 3000
 
     api_v1_prefix: str = "/api/v1"
+
+    spider_ai_db_path: Path = Field(default_factory=default_database_path)
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "llama3.1:8b"
