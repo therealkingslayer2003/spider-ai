@@ -215,7 +215,7 @@ async def test_router_freezes_exact_stock_contexts_as_evidence() -> None:
 
     final_state = await router.ainvoke({"request": make_request()})
 
-    evidence = final_state["snapshot_evidence"]
+    evidence = final_state["evidence"]
     assert evidence is not None
     assert evidence.asset_profile_context == profile
     assert evidence.company_peers_context == peers
@@ -289,6 +289,8 @@ async def test_stock_subgraph_no_profile_continues_with_model_fallback(
     mock_llm: AsyncMock,
 ) -> None:
     mock_profile_tool.run.return_value = None
+    mock_company_peers_tool.run.return_value = make_empty_peers()
+    mock_fundamentals_tool.run.return_value = make_empty_fundamentals()
     mock_prompt_builder.data_scope.return_value = "model_static_knowledge_fallback"
     mock_llm.generate.return_value = llm_response(
         data_scope="model_static_knowledge_fallback"
@@ -305,6 +307,7 @@ async def test_stock_subgraph_no_profile_continues_with_model_fallback(
 
     assert final_state["data_scope"] == "model_static_knowledge_fallback"
     assert isinstance(final_state["validated_output"], StockAssetSnapshot)
+    mock_llm.generate.assert_awaited_once()
 
 
 @pytest.mark.asyncio

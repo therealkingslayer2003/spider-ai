@@ -22,19 +22,12 @@ class AssetSnapshotService:
     async def get_snapshot(self, request: AssetSnapshotRequest) -> StockAssetSnapshot:
         if self._persistence_service is None:
             logger.warning(
-                "asset_snapshot.persistence_service_unavailable, connection is not presented, asset=%s",
+                "asset_snapshot.persistence_service_unavailable asset=%s",
                 request.asset,
             )
-            return await self.graph_runner.run(request=request, with_evidence=False)
-        
-        elif not self._persistence_service._database.is_healthy():
-            logger.warning(
-                "asset_snapshot.persistence_service_unhealthy, connection is lost, asset=%s",
-                request.asset,
-            )
-            return await self.graph_runner.run(request=request, with_evidence=False)
+            return await self.graph_runner.run(request)
 
-        result = await self.graph_runner.run_with_evidence(request=request, to_persist_evidence=True)
+        result = await self.graph_runner.run_result(request)
         try:
             await self._persistence_service.persist(
                 snapshot=result.snapshot,

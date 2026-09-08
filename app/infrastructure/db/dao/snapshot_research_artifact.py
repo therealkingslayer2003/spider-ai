@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.schemas.asset_snapshot import StockAssetSnapshot
-from app.domain.schemas.snapshot_evidence import SnapshotEvidence
+from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
 from app.infrastructure.db.models import (
     AssetModel,
     AssetTypeModel,
@@ -27,8 +27,7 @@ class SnapshotArtifactAggregate:
     model: str | None
     prompt_version: str | None
     snapshot: StockAssetSnapshot
-    evidence: SnapshotEvidence
-    rationale: str | None
+    evidence: AssetSnapshotEvidence
 
 
 class SnapshotResearchArtifactDao:
@@ -40,13 +39,11 @@ class SnapshotResearchArtifactDao:
         research_artifact_id: int,
         evidence_id: int,
         snapshot: StockAssetSnapshot,
-        rationale: str | None = None,
     ) -> SnapshotResearchArtifactModel:
         model = SnapshotResearchArtifactModel(
             research_artifact_id=research_artifact_id,
             evidence_id=evidence_id,
             output_json=snapshot.model_dump_json(),
-            rationale=rationale,
         )
         self._session.add(model)
         await self._session.flush()
@@ -121,6 +118,5 @@ class SnapshotResearchArtifactDao:
             model=artifact.model,
             prompt_version=artifact.prompt_version,
             snapshot=StockAssetSnapshot.model_validate_json(snapshot_model.output_json),
-            evidence=SnapshotEvidence.model_validate_json(evidence.context_json),
-            rationale=snapshot_model.rationale,
+            evidence=AssetSnapshotEvidence.model_validate_json(evidence.context_json),
         )

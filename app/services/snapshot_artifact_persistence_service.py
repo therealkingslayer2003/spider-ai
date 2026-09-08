@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from app.domain.schemas.asset_snapshot import StockAssetSnapshot
-from app.domain.schemas.snapshot_evidence import SnapshotEvidence
+from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
 from app.infrastructure.db.dao import (
     AssetDao,
     AssetTypeDao,
@@ -30,9 +30,8 @@ class SnapshotArtifactPersistenceService:
     async def persist(
         self,
         snapshot: StockAssetSnapshot,
-        evidence: SnapshotEvidence,
+        evidence: AssetSnapshotEvidence,
         *,
-        rationale: str | None = None,
         data_as_of: datetime | None = None,
     ) -> int:
         await self._database.initialize()
@@ -60,7 +59,6 @@ class SnapshotArtifactPersistenceService:
                     research_artifact.id,
                     evidence_model.id,
                     snapshot,
-                    rationale,
                 )
 
         logger.info(

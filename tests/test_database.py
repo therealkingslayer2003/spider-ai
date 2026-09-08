@@ -14,11 +14,11 @@ from app.domain.schemas.asset_snapshot import (
     StructuralDriver,
     StructuralRisk,
 )
+from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
 from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
 from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
-from app.domain.schemas.snapshot_evidence import SnapshotEvidence
 from app.infrastructure.db.dao import (
     AssetDao,
     AssetTypeDao,
@@ -79,8 +79,8 @@ def make_snapshot(summary: str = "GPU platform company.") -> StockAssetSnapshot:
     )
 
 
-def make_evidence() -> SnapshotEvidence:
-    return SnapshotEvidence(
+def make_evidence() -> AssetSnapshotEvidence:
+    return AssetSnapshotEvidence(
         asset_profile_context=AssetProfileContext(
             asset="NVDA",
             asset_type=AssetType.STOCK,
@@ -239,7 +239,6 @@ async def test_research_and_snapshot_daos_restore_latest_aggregate(
             latest_artifact.id,
             latest_evidence.id,
             latest_snapshot,
-            rationale="The supplied evidence supports the structural conclusions.",
         )
 
         restored_first = await snapshot_dao.get_by_research_artifact_id(
@@ -254,7 +253,6 @@ async def test_research_and_snapshot_daos_restore_latest_aggregate(
         assert restored_first.evidence == evidence
         assert restored_latest is not None
         assert restored_latest.snapshot == latest_snapshot
-        assert restored_latest.rationale is not None
         assert await research_dao.get_by_id(first_artifact.id) is first_artifact
         assert await research_dao.get_latest_for_asset(asset.id) is latest_artifact
 
@@ -337,9 +335,18 @@ async def test_schema_has_no_artifact_type_or_claim_tables(
                 )
             ).all()
         }
+        snapshot_columns = {
+            row[1]
+            for row in (
+                await connection.execute(
+                    text("PRAGMA table_info(snapshot_research_artifact)")
+                )
+            ).all()
+        }
 
     assert "artifact_type" not in research_columns
     assert "claim" not in tables
+    assert "rationale" not in snapshot_columns
 
 
 async def table_counts(database: Database) -> dict[str, int]:

@@ -8,6 +8,7 @@ from app.domain.schemas.asset_snapshot import (
     CompetitivePeer,
     StockAssetSnapshot,
 )
+from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
 from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
@@ -98,6 +99,15 @@ def test_asset_snapshot_validates_with_structured_fields() -> None:
     assert snapshot.asset_type == AssetType.STOCK
     assert snapshot.competitive_landscape[0].ticker == "V"
     assert snapshot.structural_risks[0].materiality == "high"
+
+
+def test_asset_snapshot_evidence_contains_contexts_not_snapshot_envelope() -> None:
+    assert set(AssetSnapshotEvidence.model_fields) == {
+        "asset_profile_context",
+        "company_peers_context",
+        "company_fundamentals_context",
+        "data_scope",
+    }
 
 
 def test_asset_snapshot_normalizes_materiality_case() -> None:

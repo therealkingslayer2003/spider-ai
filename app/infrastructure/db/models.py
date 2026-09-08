@@ -116,7 +116,6 @@ class SnapshotResearchArtifactModel(Base):
         unique=True,
     )
     output_json: Mapped[str] = mapped_column(Text, nullable=False)
-    rationale: Mapped[str | None] = mapped_column(Text)
 
     research_artifact: Mapped[ResearchArtifactModel] = relationship(
         back_populates="snapshot"

@@ -20,7 +20,6 @@ class StockSnapshotPromptBuilder:
         asset_profile_context: AssetProfileContext | None = None,
         company_peers_context: CompanyPeersContext | None = None,
         company_fundamentals_context: CompanyFundamentalsContext | None = None,
-        with_evidence: bool = False
     ) -> str:
         data_scope = self.data_scope(
             asset_profile_context=asset_profile_context,
@@ -43,8 +42,8 @@ class StockSnapshotPromptBuilder:
             self._build_profile_context_section(asset_profile_context),
             "2. COMPETITIVE CONTEXT",
             self._build_peer_context_section(company_peers_context),
-            "3. FINANCIAL FUNDAMENTALS",
-            self._build_fundamentals_context_section(company_fundamentals_context)
+            "3. SUPPORTING FINANCIAL FUNDAMENTALS",
+            self._build_fundamentals_context_section(company_fundamentals_context),
         ]
         prompt += "\n\n" + "\n".join(context_sections)
 

@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.schemas.snapshot_evidence import SnapshotEvidence
+from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
 from app.infrastructure.db.models import EvidenceModel
 
 
@@ -11,7 +11,7 @@ class EvidenceDao:
     async def create(
         self,
         asset_id: int,
-        evidence: SnapshotEvidence,
+        evidence: AssetSnapshotEvidence,
     ) -> EvidenceModel:
         model = EvidenceModel(
             asset_id=asset_id,
@@ -21,8 +21,8 @@ class EvidenceDao:
         await self._session.flush()
         return model
 
-    async def get_by_id(self, evidence_id: int) -> SnapshotEvidence | None:
+    async def get_by_id(self, evidence_id: int) -> AssetSnapshotEvidence | None:
         model = await self._session.get(EvidenceModel, evidence_id)
         if model is None:
             return None
-        return SnapshotEvidence.model_validate_json(model.context_json)
+        return AssetSnapshotEvidence.model_validate_json(model.context_json)

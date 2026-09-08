@@ -11,9 +11,9 @@ from app.domain.schemas.asset_snapshot import (
     AssetSnapshotRequest,
     AssetType,
 )
-from app.domain.schemas.snapshot_evidence import (
+from app.domain.schemas.asset_snapshot_evidence import (
+    AssetSnapshotEvidence,
     AssetSnapshotRunResult,
-    SnapshotEvidence,
 )
 from app.infrastructure.db.dao import SnapshotResearchArtifactDao
 from app.infrastructure.db.database import Database
@@ -63,7 +63,7 @@ async def test_successful_asset_snapshot_is_persisted_after_validation(
     snapshot = make_snapshot()
     evidence = make_evidence()
     runner = AsyncMock(spec=AssetSnapshotGraphRunner)
-    runner.run_with_evidence.return_value = AssetSnapshotRunResult(
+    runner.run_result.return_value = AssetSnapshotRunResult(
         snapshot=snapshot,
         evidence=evidence,
     )
@@ -90,13 +90,12 @@ async def test_successful_asset_snapshot_is_persisted_after_validation(
     assert stored.evidence == evidence
     assert stored.model == "llama3.1:8b"
     assert stored.prompt_version == "stock_snapshot_v1"
-    assert stored.rationale is None
 
 
 @pytest.mark.asyncio
 async def test_failed_generation_is_not_persisted(database: Database) -> None:
     runner = AsyncMock(spec=AssetSnapshotGraphRunner)
-    runner.run_with_evidence.side_effect = ServiceError("generation failed")
+    runner.run_result.side_effect = ServiceError("generation failed")
     service = AssetSnapshotService(
         runner,
         SnapshotArtifactPersistenceService(database),
@@ -121,7 +120,7 @@ async def test_persistence_failure_becomes_controlled_service_error() -> None:
     snapshot = make_snapshot()
     evidence = make_evidence()
     runner = AsyncMock(spec=AssetSnapshotGraphRunner)
-    runner.run_with_evidence.return_value = AssetSnapshotRunResult(
+    runner.run_result.return_value = AssetSnapshotRunResult(
         snapshot=snapshot,
         evidence=evidence,
     )
@@ -138,7 +137,7 @@ async def test_persistence_failure_becomes_controlled_service_error() -> None:
 @pytest.mark.asyncio
 async def test_runner_returns_exact_normalized_evidence() -> None:
     snapshot = make_snapshot()
-    evidence = SnapshotEvidence(
+    evidence = AssetSnapshotEvidence(
         asset_profile_context=AssetProfileContext(
             asset="NVDA",
             asset_type=AssetType.STOCK,
@@ -156,12 +155,12 @@ async def test_runner_returns_exact_normalized_evidence() -> None:
     router_graph = AsyncMock()
     router_graph.ainvoke.return_value = {
         "validated_output": snapshot,
-        "snapshot_evidence": evidence,
+        "evidence": evidence,
         "error": None,
     }
     runner = AssetSnapshotGraphRunner(router_graph)
 
-    result = await runner.run_with_evidence(
+    result = await runner.run_result(
         AssetSnapshotRequest(asset="NVDA", asset_type=AssetType.STOCK)
     )
 

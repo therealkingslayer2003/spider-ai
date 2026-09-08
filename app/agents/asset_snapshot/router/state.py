@@ -5,12 +5,12 @@ from app.domain.schemas.asset_snapshot import (
     AssetType,
     StockAssetSnapshot,
 )
-from app.domain.schemas.snapshot_evidence import SnapshotEvidence
+from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
 
 
 class AssetSnapshotRouterState(TypedDict, total=False):
     request: AssetSnapshotRequest
     selected_asset_type: AssetType
     validated_output: StockAssetSnapshot | None
-    snapshot_evidence: SnapshotEvidence | None
+    evidence: AssetSnapshotEvidence | None
     error: str | None

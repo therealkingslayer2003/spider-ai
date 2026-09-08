@@ -197,7 +197,6 @@ async def generate_stock_snapshot_node(
     state: StockSnapshotState,
     llm: BaseChatModelClient,
     prompt_builder: StockSnapshotPromptBuilder,
-    with_evidence: bool = False,
 ) -> StockSnapshotState:
     request = state["request"]
     asset = state.get("resolved_asset") or request.asset
@@ -209,7 +208,6 @@ async def generate_stock_snapshot_node(
         asset_profile_context=state.get("asset_profile_context"),
         company_peers_context=state.get("company_peers_context"),
         company_fundamentals_context=state.get("company_fundamentals_context"),
-        with_evidence=with_evidence
     )
 
     data_scope = prompt_builder.data_scope(
@@ -265,6 +263,35 @@ async def validate_stock_snapshot_node(
 
     try:
         data = parse_llm_json(raw_llm_output)
+        request = state.get("request")
+        if request is not None and isinstance(data, dict):
+            canonical_asset = state.get("resolved_asset") or request.asset
+            canonical_data_scope = state.get("data_scope")
+            generated_metadata = (
+                data.get("asset"),
+                data.get("asset_type"),
+                data.get("data_scope"),
+            )
+            canonical_metadata = (
+                canonical_asset,
+                request.asset_type.value,
+                canonical_data_scope,
+            )
+            if generated_metadata != canonical_metadata:
+                logger.warning(
+                    "stock.validate_snapshot.metadata_normalized "
+                    "generated_asset=%s generated_asset_type=%s "
+                    "generated_data_scope=%s",
+                    *generated_metadata,
+                )
+            data = {
+                **data,
+                "asset": canonical_asset,
+                "asset_type": request.asset_type.value,
+            }
+            if canonical_data_scope is not None:
+                data["data_scope"] = canonical_data_scope
+
         validated_output = StockAssetSnapshot.model_validate(data)
         if settings.app_log_flow_steps:
             logger.info(

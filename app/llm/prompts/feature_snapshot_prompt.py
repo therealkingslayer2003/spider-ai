@@ -69,6 +69,8 @@ Use information in this priority order:
    information is entirely unavailable
 
 Provider evidence takes precedence over model knowledge.
+The supplied company profile and business model are the primary basis for the
+analysis; peers and fundamentals refine that interpretation.
 
 ### Missing data rules
 
@@ -370,6 +372,10 @@ Avoid generic endings such as:
 - "regulation could impact operations".
 
 The explanation must show WHY.
+Avoid vague risks that do not identify the exposed business area and transmission
+mechanism.
+Every structural risk must explain the company exposure or dependency and how the
+pressure reaches an economic consequence.
 
 
 ## MATERIALITY
@@ -422,6 +428,9 @@ Do NOT:
 
 Asset Snapshot describes the economics of the business.
 It does not decide what that business should currently be worth.
+Asset Snapshot must not use P/E, P/S, EV/EBITDA, DCF, or price targets to reach a
+valuation conclusion.
+Likewise, high debt is not automatically bad and low debt is not automatically safe.
 
 
 ## QUALITY CHECK BEFORE OUTPUT
@@ -455,14 +464,14 @@ Before returning the JSON, verify internally:
 ## REQUIRED JSON SCHEMA
 
 {{
-  "asset": "string",
-  "asset_type": "string",
+  "asset": "{asset}",
+  "asset_type": "{asset_type}",
   "summary": "string",
   "business_or_asset_profile": "string",
   "market_context": "string",
   "competitive_landscape": [
     {{
-      "ticker": "string or null",
+      "ticker": "string or None",
       "name": "string",
       "competition_area": "string",
       "why_competitor": "string",
@@ -491,10 +500,11 @@ Before returning the JSON, verify internally:
 ## FIELD REQUIREMENTS
 
 "asset"
-- Must exactly represent the requested asset.
+- Must be exactly "{asset}".
 
 "asset_type"
-- Must match the supplied asset type.
+- Must be exactly "{asset_type}". Do not replace it with a descriptive category
+  such as "Company", "Equity", or an industry name.
 
 "summary"
 - 4-6 concise sentences.

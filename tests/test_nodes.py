@@ -417,6 +417,43 @@ async def test_validate_snapshot_parses_json() -> None:
 
 
 @pytest.mark.asyncio
+async def test_validate_snapshot_normalizes_workflow_owned_metadata() -> None:
+    payload = json.loads(snapshot_json("WRONG"))
+    payload["asset_type"] = "Company"
+    payload["data_scope"] = "wrong_scope"
+    state = {
+        "request": make_request("NVDA"),
+        "resolved_asset": "NVDA",
+        "data_scope": "profile_only",
+        "raw_llm_output": json.dumps(payload),
+        "errors": [],
+    }
+
+    result = await validate_stock_snapshot_node(state)
+
+    output = result["validated_output"]
+    assert isinstance(output, StockAssetSnapshot)
+    assert output.asset == "NVDA"
+    assert output.asset_type is AssetType.STOCK
+    assert output.data_scope == "profile_only"
+
+
+@pytest.mark.asyncio
+async def test_validate_snapshot_rejects_snapshot_wrapper() -> None:
+    wrapped = json.dumps(
+        {
+            "snapshot": json.loads(snapshot_json()),
+        }
+    )
+
+    result = await validate_stock_snapshot_node(
+        {"raw_llm_output": wrapped, "errors": []}
+    )
+
+    assert result["validated_output"] is None
+
+
+@pytest.mark.asyncio
 async def test_validate_snapshot_parses_markdown_fenced_json() -> None:
     state = {"raw_llm_output": f"```json\n{snapshot_json('MA')}\n```", "errors": []}
     result = await validate_stock_snapshot_node(state)

@@ -75,6 +75,10 @@ def test_prompt_injects_asset_and_type(builder: StockSnapshotPromptBuilder) -> N
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
     assert "NVDA" in prompt
     assert AssetType.STOCK.value in prompt
+    assert '"asset": "NVDA"' in prompt
+    assert '"asset_type": "stock"' in prompt
+    assert '"asset_type": "string"' not in prompt
+    assert 'such as "Company", "Equity", or an industry name' in prompt
 
 
 def test_prompt_without_context_has_fallback_profile_section(
@@ -164,6 +168,8 @@ def test_prompt_data_scope_reflects_profile_peers_and_fundamentals(
     )
 
     assert "profile_with_peers_and_financial_signals" in prompt
+    assert "NVIDIA Corporation" in prompt
+    assert "Advanced Micro Devices" in prompt
 
 
 def test_prompt_is_business_model_first(

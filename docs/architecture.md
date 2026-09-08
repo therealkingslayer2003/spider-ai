@@ -97,8 +97,8 @@ selection stays inside tools/providers.
 ```
 
 Response model: `StockAssetSnapshot`, containing `summary`, `business_or_asset_profile`,
-`market_context`, `structural_drivers`, `structural_risks`, and
-`data_scope`.
+`market_context`, `competitive_landscape`, `structural_drivers`, `structural_risks`,
+and `data_scope`.
 
 - `POST /api/v1/chat` — main chat endpoint. Expected JSON shape:
 
@@ -163,7 +163,7 @@ request
 ```
 
 Router state is intentionally minimal: request, selected asset type, validated
-output, an opaque frozen `SnapshotEvidence` bundle, and a controlled error
+output, an opaque frozen `AssetSnapshotEvidence` bundle, and a controlled error
 string. Individual company profile, peers, fundamentals, prompts, raw LLM
 output, and selected providers are not exposed as router-state fields.
 
@@ -336,15 +336,14 @@ erDiagram
         int research_artifact_id PK
         int evidence_id FK
         text output_json
-        text rationale
     }
 ```
 
-`SnapshotEvidence` stores only normalized Spider-AI contexts and their nested
+`AssetSnapshotEvidence` stores only normalized Spider-AI contexts and their nested
 provider provenance. It does not store raw yfinance/FMP payloads or the rendered
 LLM prompt. Restored snapshot JSON is validated back into
 `StockAssetSnapshot`; restored evidence is validated back into
-`SnapshotEvidence`.
+`AssetSnapshotEvidence`.
 
 `SnapshotArtifactPersistenceService` owns one transaction:
 
@@ -357,9 +356,9 @@ get/create AssetType
   -> commit
 ```
 
-Any failure rolls back the entire aggregate. Rationale is nullable and no
-second LLM call is made. The public API still returns only
-`StockAssetSnapshot`.
+Any failure rolls back the entire aggregate. The snapshot is persisted in
+`output_json`, and frozen normalized provider evidence remains separate in
+`Evidence.context_json`. The public API returns `StockAssetSnapshot`.
 
 Foreign keys use conservative `ON DELETE RESTRICT` behavior. Assets, evidence,
 and parent artifacts cannot be removed while history refers to them; no delete

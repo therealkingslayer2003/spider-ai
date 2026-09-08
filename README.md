@@ -140,6 +140,8 @@ subtype row, the validated `StockAssetSnapshot` JSON, and a frozen JSON bundle
 of the normalized profile, peers, fundamentals, and `data_scope` used during
 generation. Raw provider payloads, rendered prompts, chain-of-thought, and
 database identifiers are not included in the public Snapshot response.
+The snapshot is stored in `output_json`. A separate evidence row preserves the
+frozen normalized provider contexts used for generation.
 
 ## Local Debug Logs
 

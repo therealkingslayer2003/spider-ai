@@ -90,13 +90,6 @@ class Database:
 
         return engine
 
-def is_healthy(self) -> bool:
-    try:
-        with self.engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        return True
-    except Exception:
-        return False
 
 def _split_sql_script(script: str) -> list[str]:
     statements: list[str] = []

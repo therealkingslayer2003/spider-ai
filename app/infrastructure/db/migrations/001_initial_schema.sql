@@ -38,7 +38,6 @@ CREATE TABLE snapshot_research_artifact (
     research_artifact_id INTEGER PRIMARY KEY,
     evidence_id INTEGER NOT NULL UNIQUE,
     output_json TEXT NOT NULL,
-    rationale TEXT,
     CONSTRAINT fk_snapshot_research_artifact_parent
         FOREIGN KEY (research_artifact_id)
         REFERENCES research_artifact (id)
