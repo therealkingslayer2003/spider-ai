@@ -293,6 +293,14 @@ async def validate_stock_snapshot_node(
                 data["data_scope"] = canonical_data_scope
 
         validated_output = StockAssetSnapshot.model_validate(data)
+        peers = state.get("company_peers_context")
+        if peers and peers.peers and not validated_output.competitive_landscape:
+            logger.warning(
+                "stock.validate_snapshot.empty_landscape candidates=%s profiles=%s "
+                "reason=provider_reported_peers_not_acknowledged",
+                len(peers.peers),
+                sum(peer.profile is not None for peer in peers.peers),
+            )
         if settings.app_log_flow_steps:
             logger.info(
                 "stock.validate_snapshot.success asset=%s asset_type=%s",

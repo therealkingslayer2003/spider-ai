@@ -6,6 +6,7 @@ from app.domain.schemas.asset_snapshot import CompetitivePeer, StockAssetSnapsho
 from app.llm.base import BaseChatModelClient
 from evals.asset_snapshot.dataset import load_dataset
 from evals.asset_snapshot.graders import (
+    CompetitiveEvidenceGrader,
     DataScopeGrader,
     ForbiddenClaimGrader,
     RequiredFieldGrader,
@@ -56,6 +57,115 @@ def financial_case():
     return next(
         case for case in load_dataset() if case.id == "profile_financials_no_peers_001"
     )
+
+
+@pytest.mark.parametrize(
+    ("case_id", "tickers", "placeholder", "passed"),
+    [
+        ("amzn_peer_profiles_001", [], False, False),
+        ("amzn_peer_profiles_001", ["ETSY"], False, False),
+        ("amzn_peer_profiles_001", ["ETSY", "CASY"], True, False),
+        ("amzn_peer_profiles_001", ["ETSY", "CASY"], False, True),
+        ("ma_sparse_peers_001", [], False, False),
+        ("ma_sparse_peers_001", ["V"], False, False),
+        ("ma_sparse_peers_001", ["V", "AXP"], False, True),
+        ("cloudx_unrelated_peer_001", [], False, False),
+        ("cloudx_unrelated_peer_001", ["FARM"], False, True),
+        ("profile_only_saas_001", [], False, True),
+    ],
+)
+def test_competitive_evidence_requires_peer_acknowledgment_not_proven_competition(
+    case_id, tickers, placeholder, passed
+):
+    case = next(c for c in load_dataset() if c.id == case_id)
+    snapshot = make_snapshot()
+    snapshot.competitive_landscape = [
+        CompetitivePeer(
+            ticker=ticker,
+            name=ticker,
+            competition_area="Provider-reported peer; specific overlap is unconfirmed.",
+            why_competitor="Not available"
+            if placeholder
+            else "Provider-reported peer; direct competition is unconfirmed.",
+            why_it_matters="Specific impact is not established by supplied evidence.",
+        )
+        for ticker in tickers
+    ]
+
+    result = CompetitiveEvidenceGrader().grade(case, snapshot)
+    assert result.passed is passed
+    assert bool(result.failure_labels) is not passed
+
+
+@pytest.mark.parametrize(
+    (
+        "supplied_ticker",
+        "supplied_name",
+        "generated_ticker",
+        "generated_name",
+        "passed",
+    ),
+    [
+        ("V", "Visa", "v", "Visa", True),
+        ("V", "Visa", None, "VISA", True),
+        (None, "Visa, Inc.", None, "Visa Inc", True),
+        ("V", None, "V", "V", True),
+        ("V", "Visa", "OTHER", "Visa", False),
+        (None, "Visa", None, "Another Company", False),
+    ],
+)
+def test_peer_coverage_matches_identity_without_inspecting_profiles(
+    supplied_ticker,
+    supplied_name,
+    generated_ticker,
+    generated_name,
+    passed,
+):
+    from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
+
+    case = financial_case().model_copy(deep=True)
+    case.peers_fixture = CompanyPeersContext(
+        asset=case.request.asset,
+        provider="frozen_eval",
+        peers=[CompanyPeer(ticker=supplied_ticker, name=supplied_name)],
+    )
+    snapshot = make_snapshot()
+    snapshot.competitive_landscape = [
+        CompetitivePeer(
+            ticker=generated_ticker,
+            name=generated_name,
+            competition_area="Provider-reported peer; direct overlap unconfirmed.",
+            why_competitor="Included by the provider; no peer profile was supplied.",
+            why_it_matters="Specific impact cannot be assessed from supplied facts.",
+        )
+    ]
+    assert CompetitiveEvidenceGrader().grade(case, snapshot).passed is passed
+
+
+def test_missing_provider_peer_is_reported_by_identity():
+    case = next(c for c in load_dataset() if c.id == "ma_sparse_peers_001")
+    result = CompetitiveEvidenceGrader().grade(case, make_snapshot())
+    assert result.reason == "Missing provider-reported peers: ['AXP', 'V']"
+
+
+def test_competitive_evidence_grader_rejects_invalid_schema():
+    assert not CompetitiveEvidenceGrader().grade(financial_case(), {}).passed
+
+
+def test_judge_distinguishes_peer_facts_from_generated_inferences():
+    case = next(c for c in load_dataset() if c.id == "amzn_peer_profiles_001")
+    from unittest.mock import AsyncMock
+
+    grader = LLMJudgeGrader(
+        "groundedness", "Grounded analysis", "grounding_failure", AsyncMock()
+    )
+    prompt = grader._build_prompt(case, make_snapshot())
+    assert "Every distinct identifiable supplied peer should be acknowledged" in prompt
+    assert "This is substantive" in prompt
+    assert "not when enrichment fails" in prompt
+    assert "unsupported claims of direct competition" in prompt
+    assert "Do not require verbatim explanations in fixtures" in prompt
+    assert "independent sellers" in prompt
 
 
 def test_schema_validity_grader_accepts_production_snapshot() -> None:

@@ -79,6 +79,13 @@ If an individual field is missing:
 - do NOT infer a company characteristic that requires that missing value;
 - continue using the evidence that is available.
 
+Distinguish missing facts from analytical conclusions: you may infer competitive
+overlap and its potential economic consequences from the supplied target and peer
+business profiles. These are your analysis, not provider assertions. Do not add
+unsupplied facts about a peer from memory when its profile is unavailable.
+The provider-reported peer relationship itself is supplied evidence. Missing
+enrichment limits your explanation, not whether the peer should be acknowledged.
+
 Examples:
 - no operating margin -> do not claim high or low profitability from financial data;
 - no debt-to-equity ratio -> do not infer strong or weak leverage;
@@ -160,6 +167,35 @@ Translate it into an economic model of the business.
 
 Peer data is supporting evidence for understanding competition.
 
+Accept the supplied list as provider-reported peers. Include each distinct supplied
+peer with a ticker or name in competitive_landscape, even when its profile is
+missing, incomplete, or shows no direct business overlap. Enrichment explains and
+qualifies relationships; it is not an eligibility test. Do not return an empty
+landscape merely because enrichment failed. Preserve supplied tickers and names;
+if only a ticker is supplied, use it as the name instead of inventing a company name.
+
+Nested profiles contain retrieved business facts. The fields below are analytical
+OUTPUT fields, not missing fields the provider must supply. Compare the target's
+products, services, customers and channels with available peer facts to distinguish
+supported direct competition, indirect competition, or broader comparability.
+Do not equate provider peer membership with proven direct competition.
+
+When overlap cannot be established, explicitly acknowledge the provider-reported
+peer and state the limitation in the existing fields. For example:
+- competition_area: "Provider-reported peer; specific competitive overlap is not
+  established by the supplied evidence."
+- why_competitor: "Included in the provider's peer list; direct competition is
+  unconfirmed because no peer business profile was supplied."
+- why_it_matters: "A peer for comparison; its specific economic impact on the
+  target cannot be assessed from the supplied evidence."
+Adapt the limitation to the actual evidence. If a profile exists but shows a
+different business, explain that no direct overlap is established instead of
+claiming the profile is missing. These qualifications are valid analysis, not
+placeholder failures. Never copy a bare "Not available" into an output field.
+Do not manufacture pricing, market-share, or customer-switching effects to fill
+an entry. An empty landscape is appropriate when no identifiable peers are supplied;
+it does not establish that the company has no competitors.
+
 For every supplied peer consider:
 
 ### competition_area
@@ -167,12 +203,14 @@ Identify the specific market, product, customer base, distribution channel,
 technology, or economic activity in which competition occurs.
 
 ### why_competitor
-Use this to determine whether the peer is economically relevant rather than merely
-similar by sector classification.
+Explain the supported business overlap that makes the candidate economically
+relevant, or attribute its inclusion to the provider and qualify the relationship
+when direct competition is not established.
 
 ### why_it_matters
-Use this to identify the transmission mechanism through which the competitor could
-affect the company.
+Explain the potential transmission mechanism through which the competitor could
+affect the company. Do not invent measured impacts, market shares, or dominance.
+When evidence does not establish an impact, say so instead of forcing a mechanism.
 
 Possible mechanisms include:
 - pricing pressure;
@@ -524,8 +562,9 @@ Before returning the JSON, verify internally:
 - No current-news or valuation commentary.
 
 "competitive_landscape"
-- Prefer supplied peers.
-- Explain the actual area and mechanism of competition.
+- Acknowledge every distinct identifiable provider-reported peer.
+- Explain supported competition or qualify broader/unconfirmed relationships.
+- Missing enrichment is not a reason to drop a peer or invent an impact.
 - Do not assume every comparable company is a direct competitor.
 
 "structural_drivers"

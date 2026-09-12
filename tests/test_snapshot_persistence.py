@@ -15,12 +15,14 @@ from app.domain.schemas.asset_snapshot_evidence import (
     AssetSnapshotEvidence,
     AssetSnapshotRunResult,
 )
+from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
 from app.infrastructure.db.dao import SnapshotResearchArtifactDao
 from app.infrastructure.db.database import Database
 from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.snapshot_artifact_persistence_service import (
     SnapshotArtifactPersistenceService,
 )
+from tests.test_asset_snapshot_context_tools import make_profile
 from tests.test_database import make_evidence, make_snapshot, table_counts
 
 
@@ -62,6 +64,11 @@ async def test_successful_asset_snapshot_is_persisted_after_validation(
 ) -> None:
     snapshot = make_snapshot()
     evidence = make_evidence()
+    evidence.company_peers_context = CompanyPeersContext(
+        asset="NVDA",
+        provider="fmp",
+        peers=[CompanyPeer(ticker="AMD", profile=make_profile("AMD"))],
+    )
     runner = AsyncMock(spec=AssetSnapshotGraphRunner)
     runner.run_result.return_value = AssetSnapshotRunResult(
         snapshot=snapshot,

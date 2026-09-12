@@ -44,7 +44,7 @@ def get_snapshot_artifact_persistence_service() -> SnapshotArtifactPersistenceSe
     return SnapshotArtifactPersistenceService(
         database=get_database(),
         model=settings.ollama_chat_model,
-        prompt_version="stock_snapshot_v1",
+        prompt_version="stock_snapshot_provider_peers_v1",
     )
 
 
@@ -79,7 +79,10 @@ def get_optional_fmp_provider() -> FmpProvider | None:
 
 
 def get_company_peers_tool() -> CompanyPeersTool:
-    return CompanyPeersTool(provider=get_optional_fmp_provider())
+    return CompanyPeersTool(
+        provider=get_optional_fmp_provider(),
+        profile_tool=get_profile_tool(),
+    )
 
 
 def get_company_fundamentals_tool() -> CompanyFundamentalsTool:

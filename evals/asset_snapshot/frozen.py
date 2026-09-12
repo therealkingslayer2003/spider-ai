@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.agents.asset_snapshot.router.graph import AssetSnapshotRouterGraph
 from app.agents.asset_snapshot.runner import AssetSnapshotGraphRunner
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 class FrozenCompanyProfileProvider:
     fixture: AssetProfileContext | None
     calls: int = 0
+    peer_profiles: dict[str, AssetProfileContext] = field(default_factory=dict)
 
     async def get_company_profile(
         self,
@@ -33,6 +34,8 @@ class FrozenCompanyProfileProvider:
         asset_type: AssetType,
     ) -> AssetProfileContext | None:
         self.calls += 1
+        if asset_type is AssetType.STOCK and asset.upper() in self.peer_profiles:
+            return self.peer_profiles[asset.upper()].model_copy(deep=True)
         if self.fixture is None:
             logger.debug(
                 "eval.frozen.profile.result asset=%s asset_type=%s result=missing "
@@ -86,7 +89,10 @@ class FrozenCompanyPeersProvider:
                 self.fixture.provider,
                 self.calls,
             )
-            return self.fixture.model_copy(deep=True)
+            context = self.fixture.model_copy(deep=True)
+            for peer in context.peers:
+                peer.profile = None
+            return context
         logger.debug(
             "eval.frozen.peers.result asset=%s result=empty calls=%s",
             self.request_asset,
@@ -152,7 +158,16 @@ def build_frozen_execution(
         len(case.peers_fixture.peers) if case.peers_fixture else 0,
         _financial_signal_count(case.fundamentals_fixture),
     )
-    profile_provider = FrozenCompanyProfileProvider(case.profile_fixture)
+    profile_provider = FrozenCompanyProfileProvider(
+        case.profile_fixture,
+        peer_profiles={
+            peer.profile.asset.upper(): peer.profile
+            for peer in case.peers_fixture.peers
+            if peer.profile is not None
+        }
+        if case.peers_fixture
+        else {},
+    )
     peers_provider = FrozenCompanyPeersProvider(
         fixture=case.peers_fixture,
         request_asset=case.request.asset,
@@ -162,12 +177,15 @@ def build_frozen_execution(
         request_asset=case.request.asset,
     )
 
+    profile_tool = CompanyProfileTool(
+        primary_provider=profile_provider,
+        fallback_provider=None,
+    )
     stock_subgraph = StockSnapshotSubgraph(
-        company_profile_tool=CompanyProfileTool(
-            primary_provider=profile_provider,
-            fallback_provider=None,
+        company_profile_tool=profile_tool,
+        company_peers_tool=CompanyPeersTool(
+            provider=peers_provider, profile_tool=profile_tool
         ),
-        company_peers_tool=CompanyPeersTool(provider=peers_provider),
         company_fundamentals_tool=CompanyFundamentalsTool(
             provider=fundamentals_provider
         ),

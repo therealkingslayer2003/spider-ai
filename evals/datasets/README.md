@@ -4,6 +4,36 @@
 production Stock Asset Snapshot workflow. Each line is one independently
 validated `StockSnapshotEvalCase`.
 
+## Peer-profile revision
+
+Reports now identify this revision as `stock_snapshot_v1_provider_peers`; the
+existing JSONL filename is retained. There are 30 cases. The 15 existing cases
+with peers now contain authored factual business profiles instead of prewritten
+competitive explanations. Their original business/risk themes are retained.
+The provider's peer list itself determines expected acknowledgment, regardless of
+profile availability. Curated inclusion/exclusion labels have been removed.
+All changed cases remain `pending_manual_review` with `REVIEW_PROVIDER_PEER_POLICY`.
+
+Three new pending cases cover AMZN with an enriched marketplace candidate and a
+missing candidate profile, MA with identity-only peers, and a fictional software
+company with a fully profiled but nonoverlapping agricultural peer. All reported
+peers must remain acknowledged: Etsy gets supported overlap analysis, CASY and the
+sparse MA peers get explicit uncertainty, and FARM gets a qualified provider-peer
+attribution without an invented software-competition mechanism.
+All these profiles are authored fixtures, **not captured vendor responses**.
+Profile timestamps are fixed to keep the added evidence reproducible.
+
+The frozen profile provider serves `peers_fixture.peers[].profile` through the
+same enrichment calls as production. `why_competitor`, `competition_area`, and
+`why_it_matters` contain supported analysis or meaningful evidence limitations,
+not prewritten fixture answers or bare placeholders.
+Missing profiles remain missing; evals never call live vendors.
+
+This explicitly replaces the previous fixture contract. Old reports remain
+historical artifacts and their scores are not directly comparable with this
+revision (there are now eight deterministic checks). Human review is required
+before using the migrated cases as a new baseline.
+
 ## Safety status
 
 Every initial case has:

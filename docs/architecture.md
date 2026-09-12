@@ -62,7 +62,7 @@ app/agents/asset_snapshot/
     state.py                    # stock-specific graph state
   tools/
     company_profile.py          # yfinance primary, FMP fallback
-    company_peers.py            # FMP peers, empty fallback
+    company_peers.py            # Peer discovery and cached profile enrichment
     company_fundamentals.py     # optional yfinance signals, empty fallback
 ```
 
@@ -135,6 +135,7 @@ flowchart TD
     Profile --> YF[yfinance primary]
     Profile --> FMPProfile[FMP fallback]
     Peers --> FMPPeers[FMP primary]
+    Peers -->|candidate profiles| Profile
     Fundamentals --> YFSignals[yfinance optional signals]
 
     StockGraph --> LLM[LLM generation]
@@ -197,7 +198,8 @@ Important behavior:
 The stock subgraph calls Asset Snapshot capability tools:
 
 - `CompanyProfileTool`: yfinance primary, FMP fallback if configured.
-- `CompanyPeersTool`: FMP primary if configured, otherwise empty peers.
+- `CompanyPeersTool`: FMP candidate discovery if configured, otherwise empty peers;
+  candidate profiles are enriched through the injected `CompanyProfileTool`.
 - `CompanyFundamentalsTool`: selected optional signals already available from
   yfinance, otherwise an empty normalized context.
 
@@ -209,6 +211,45 @@ Capability tools never construct providers internally. The API dependency
 composition root creates the shared yfinance provider and includes FMP only when
 it is configured. A configured profile fallback is still selected dynamically
 at request time when the primary provider fails or returns no usable profile.
+
+### Peer evidence and competitive analysis
+
+`CompanyPeer` holds identity, discovery provider, and an optional nested
+`AssetProfileContext` (`profile`). The nested profile retains its own provider and
+fetch timestamp. It supplies business summary, sector, industry, and other
+normalized company facts. `competition_area`, `why_competitor`, and
+`why_it_matters` belong only to the generated `CompetitivePeer` output; neither
+the provider nor the tool invents those explanations.
+
+Enrichment uses the existing shared profile-provider caches, with 10 distinct
+non-target tickers per run, 3 concurrent lookups, and a 15-second timeout per
+lookup by default. These limits are constructor options on `CompanyPeersTool`.
+Candidate ordering is retained, duplicate symbols are fetched once, and failed
+or excess candidates remain identity-only. Provider-cached objects are not mutated.
+The timeout bounds awaiting the profile tool; it cannot forcibly stop an already
+running synchronous yfinance request in its worker thread.
+
+The provider's list is accepted as provider-reported peers. The prompt asks the
+LLM to acknowledge each distinct identifiable peer in `competitive_landscape`,
+regardless of enrichment availability. Enrichment helps explain and qualify direct
+competition, indirect competition, or broader comparability; it does not establish
+eligibility for inclusion. The LLM may infer mechanisms from supplied business
+facts, but must not invent peer facts or economic impacts from memory.
+
+With sparse or nonoverlapping profiles, the existing string fields explicitly
+attribute inclusion to the provider and explain that direct overlap or impact is
+unconfirmed. A provider-reported peer is not automatically a proven direct rival.
+This meaningful uncertainty is allowed; bare placeholders are not. Empty output
+is appropriate when no identifiable peers are supplied. `data_scope` still
+describes input availability, not explanation quality. Empty landscapes with
+supplied peers produce a review warning; validation does not fabricate analysis
+or silently rewrite the LLM's analytical output.
+
+New normalized evidence JSON includes the nested peer profiles. The SQLite schema
+and public snapshot response remain unchanged. Existing saved artifacts are not
+rewritten; old evidence without `profile` remains readable as identity-only context,
+and obsolete input explanation keys are ignored by Pydantic. New persisted runs
+use prompt version `stock_snapshot_provider_peers_v1`.
 
 Provider responsibilities:
 

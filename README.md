@@ -180,6 +180,23 @@ runs. The graph continues with empty peers and optional yfinance financial
 fundamentals. Static hardcoded peer and sector mappings are not used as production
 data sources.
 
+FMP returns **provider-reported peers**, not necessarily direct competitors.
+`CompanyPeersTool` enriches up to 10 distinct candidate tickers using the shared
+`CompanyProfileTool` (yfinance first, configured FMP fallback). Existing provider
+TTL caches are reused; up to 3 profile lookups run concurrently with a 15-second
+timeout per lookup. Failed or unattempted candidates remain identity-only.
+The LLM compares retrieved business profiles to generate `competition_area`,
+`why_competitor`, and `why_it_matters`; these are analytical conclusions, not
+provider fields. Every distinct identifiable reported peer should be acknowledged
+in `competitive_landscape`, even if enrichment fails. The LLM qualifies direct,
+indirect, or broader relationships only as supported; otherwise it attributes the
+peer to the provider and states that specific overlap or impact is unconfirmed.
+Missing enrichment is not evidence that the provider's peer selection is wrong.
+No economic mechanism is invented just to fill an entry. An empty landscape is
+appropriate when no identifiable peers were supplied. Enriched profiles and their
+provenance are saved in evidence JSON.
+No database schema or public response shape changed.
+
 Asset Snapshot v1 intentionally stays business-model-first:
 
 - Core: company name, sector, industry, business summary, and country.

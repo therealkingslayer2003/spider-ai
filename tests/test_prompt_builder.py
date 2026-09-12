@@ -42,9 +42,18 @@ def peer_context() -> CompanyPeersContext:
             CompanyPeer(
                 ticker="AMD",
                 name="Advanced Micro Devices",
-                competition_area="AI accelerators",
-                why_competitor="AMD competes in GPUs.",
-                why_it_matters="It pressures pricing and share.",
+                profile=AssetProfileContext(
+                    asset="AMD",
+                    asset_type=AssetType.STOCK,
+                    name="Advanced Micro Devices",
+                    sector="Technology",
+                    industry="Semiconductors",
+                    business_summary="Designs GPUs and processors.",
+                    exchange=None,
+                    currency=None,
+                    country=None,
+                    provider="yfinance",
+                ),
                 provider="fmp",
             )
         ],
@@ -124,6 +133,14 @@ def test_prompt_with_peers_context_includes_competitors(
     assert "Advanced Micro Devices" in prompt
     assert "AMD" in prompt
     assert "profile_with_peers" in prompt
+    assert "Designs GPUs and processors." in prompt
+    assert "Provider: yfinance" in prompt
+    assert "Fetched at:" in prompt
+    assert "competition_area=Not available" not in prompt
+    assert "analytical OUTPUT" in " ".join(prompt.split())
+    assert 'Never copy a bare "Not available"' in prompt
+    assert "Enrichment explains and" in prompt
+    assert "Include each distinct supplied" in prompt
 
 
 def test_prompt_with_fundamentals_context_includes_metrics(
@@ -151,6 +168,41 @@ def test_prompt_with_fundamentals_context_includes_metrics(
     assert "market_cap" not in prompt
     assert "quantitative supporting evidence" in prompt
     assert "profile_with_financial_signals" in prompt
+
+
+@pytest.mark.parametrize("with_profile", [False, True])
+def test_prompt_retains_sparse_or_nonoverlapping_provider_peer(
+    builder: StockSnapshotPromptBuilder,
+    profile_context: AssetProfileContext,
+    with_profile: bool,
+) -> None:
+    peer_profile = (
+        profile_context.model_copy(
+            update={
+                "asset": "FARM",
+                "name": "Field Farm",
+                "industry": "Agriculture",
+                "business_summary": "Grows wheat and sells grain to food processors.",
+            }
+        )
+        if with_profile
+        else None
+    )
+    peers = CompanyPeersContext(
+        asset="NVDA",
+        provider="fmp",
+        peers=[CompanyPeer(ticker="FARM", name="Field Farm", profile=peer_profile)],
+    )
+    prompt = builder.build_prompt("NVDA", AssetType.STOCK, profile_context, peers)
+    assert "Field Farm (FARM)" in prompt
+    assert "Provider-reported peers (enrichment is optional)" in prompt
+    assert "it is not an eligibility test" in prompt
+    assert "When evidence does not establish an impact, say so" in prompt
+    assert "claiming the profile is missing" in prompt
+    if with_profile:
+        assert "Grows wheat" in prompt
+    else:
+        assert "Peer profile unavailable. Retain this provider-reported peer" in prompt
 
 
 def test_prompt_data_scope_reflects_profile_peers_and_fundamentals(

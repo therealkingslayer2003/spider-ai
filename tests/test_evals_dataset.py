@@ -17,8 +17,8 @@ def test_stock_snapshot_v1_dataset_is_valid_and_review_statuses_are_counted() ->
     cases = load_dataset()
     counts = dataset_status_counts(cases)
 
-    assert len(cases) == 27
-    assert len({case.id for case in cases}) == 27
+    assert len(cases) == 30
+    assert len({case.id for case in cases}) == 30
     assert {case.metadata.provenance for case in cases} == {"synthetic_ai_generated"}
     assert sum(counts.values()) == len(cases)
 
@@ -30,7 +30,7 @@ def test_stock_snapshot_v1_has_declared_case_mix_and_review_flags() -> None:
         "normal": 16,
         "fallback": 5,
         "contrast": 5,
-        "adversarial": 1,
+        "adversarial": 4,
     }
     for case in cases:
         if case.metadata.entity_kind == "real":
@@ -132,3 +132,35 @@ def test_misaligned_fixture_asset_fails_validation(tmp_path: Path) -> None:
 
     with pytest.raises(EvalDatasetError, match="does not match"):
         load_dataset(dataset_path)
+
+
+def test_peer_fixtures_contain_facts_not_precomputed_analysis() -> None:
+    for case in load_dataset():
+        if not case.peers_fixture:
+            continue
+        for peer in case.peers_fixture.peers:
+            assert (
+                not {"competition_area", "why_competitor", "why_it_matters"}
+                & peer.model_dump().keys()
+            )
+            if peer.profile:
+                assert peer.profile.asset == peer.ticker
+                assert peer.profile.business_summary
+        assert case.metadata.review_status == "pending_manual_review"
+        assert "REVIEW_PROVIDER_PEER_POLICY" in case.metadata.flags
+
+
+def test_peer_policy_has_no_curated_inclusion_or_exclusion_labels() -> None:
+    for raw in DEFAULT_DATASET_PATH.read_text().splitlines():
+        expectations = json.loads(raw)["expectations"]
+        assert "expected_competitor_tickers" not in expectations
+        assert "excluded_competitor_tickers" not in expectations
+
+
+def test_peer_fixture_alignment_is_validated() -> None:
+    from evals.asset_snapshot.models import StockSnapshotEvalCase
+
+    raw = load_dataset()[0].model_dump(mode="json")
+    raw["peers_fixture"]["peers"][0]["profile"]["asset"] = "WRONG"
+    with pytest.raises(ValueError, match="Peer profile must match"):
+        StockSnapshotEvalCase.model_validate(raw)

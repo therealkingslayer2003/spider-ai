@@ -100,8 +100,12 @@ providers with:
 - `FrozenCompanyPeersProvider`;
 - `FrozenFundamentalsProvider`.
 
-Each provider returns a deep copy of the case fixture and exposes a call counter
-for tests. Missing fixtures return the same normalized empty result expected by
+Each provider exposes a call counter and returns independent fixture data.
+The peers provider returns candidate identities with profiles stripped; the profile
+provider serves both the target fixture and the nested candidate profile fixtures.
+The production peers tool must retrieve those profiles to enrich the context.
+Thus tests exercise enrichment rather than bypassing it with precomputed analysis.
+Missing fixtures return the same normalized empty result expected by
 the production tools. These providers contain no yfinance or FMP dependency, so
 fictional tickers cannot escape to the network.
 
@@ -155,6 +159,19 @@ results should not require model judgment:
   signals: revenue, revenue growth, operating margin, and debt-to-equity ratio.
 - `ForbiddenClaimGrader` checks normalized case-specific mistakes.
 - `UnsupportedCompetitorGrader` enforces supplied peers for opted-in cases.
+- `CompetitiveEvidenceGrader` requires acknowledgment of all distinct identifiable
+  provider-reported peers, using tickers or normalized names. It rejects blank or
+  bare-placeholder relationship fields but accepts explanatory uncertainty.
+  There is no curated inclusion/exclusion list and no profile-based eligibility test.
+
+The groundedness and company-specificity judge rubrics distinguish retrieved peer
+facts from generated relationship inferences. They penalize omitted reported peers
+and unsupported claims of direct competition, not inclusion of peers whose profiles
+are missing or whose businesses differ. Provider attribution with an accurate
+qualification is valid. When profiles establish overlap, the model should explain
+it rather than fall back to a generic disclaimer. Empty output is appropriate when
+no peers are supplied, not when enrichment fails. The deterministic check only
+verifies coverage and non-placeholder text; the judge evaluates semantic quality.
 
 These graders are intentionally narrow. They do not attempt arbitrary financial
 fact-checking or semantic correctness.

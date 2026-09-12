@@ -2,13 +2,19 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from app.domain.schemas.asset_profile_context import AssetProfileContext
+
 
 class CompanyPeer(BaseModel):
     ticker: str | None = None
     name: str | None = None
-    competition_area: str | None = None
-    why_competitor: str | None = None
-    why_it_matters: str | None = None
+    profile: AssetProfileContext | None = Field(
+        default=None,
+        description=(
+            "Retrieved candidate company facts, "
+            "not a confirmed competitive relationship."
+        ),
+    )
     provider: str | None = None
 
 

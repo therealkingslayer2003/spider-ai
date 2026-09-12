@@ -1,8 +1,25 @@
 # Stock Snapshot v1 Manual Review
 
-All 27 cases are AI-generated, synthetic benchmark seeds with
-`pending_manual_review` status. This table is both the pre-generation coverage
-design and the owner review guide.
+The original 27 cases are AI-generated, synthetic benchmark seeds. This table is
+both the pre-generation coverage design and the owner review guide. Current
+approval status lives in the JSONL, not this document.
+
+## Peer-profile revision
+
+The dataset now contains 30 cases. The 15 original peer-bearing cases have been
+migrated from prewritten relationship explanations to authored candidate business
+profiles and reset to `pending_manual_review`. Review each profile and the policy
+of acknowledging all provider-reported peers before approving it again. Existing business-model,
+driver, and risk expectations were not relaxed to improve scores.
+
+| New case | Evidence | Expected behavior |
+|---|---|---|
+| `amzn_peer_profiles_001` | Target profile, Etsy marketplace profile, identity-only CASY | Acknowledge both; explain Etsy overlap and qualify CASY as a provider peer with unconfirmed overlap |
+| `ma_sparse_peers_001` | MA profile, identity-only V and AXP | Acknowledge both as provider-reported peers with evidence limitations |
+| `cloudx_unrelated_peer_001` | Software target, nonoverlapping farming profile | Retain the provider-reported peer; do not assert direct competition or invent economic effects |
+
+These three cases are also pending review. They are authored synthetic seeds,
+including those naming real companies, not frozen captures of provider responses.
 
 ## Normal business-model cases
 

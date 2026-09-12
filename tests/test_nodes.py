@@ -98,9 +98,6 @@ def make_peer_context(asset: str = "NVDA") -> CompanyPeersContext:
             CompanyPeer(
                 ticker="AMD",
                 name="Advanced Micro Devices",
-                competition_area="AI accelerators",
-                why_competitor="AMD competes with GPUs and accelerators.",
-                why_it_matters="It pressures pricing and customer choice.",
             )
         ],
         provider="test",

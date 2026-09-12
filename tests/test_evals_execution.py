@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 import evals.asset_snapshot.frozen as frozen_module
-from app.domain.schemas.asset_snapshot import StockAssetSnapshot
+from app.domain.schemas.asset_snapshot import CompetitivePeer, StockAssetSnapshot
 from app.llm.base import BaseChatModelClient
 from evals.asset_snapshot.dataset import load_dataset
 from evals.asset_snapshot.frozen import build_frozen_execution
+from evals.asset_snapshot.graders import CompetitiveEvidenceGrader
 from evals.asset_snapshot.models import JudgeEvidence, SemanticMetricResult
 from evals.asset_snapshot.reporting import write_report
 from evals.asset_snapshot.run import (
@@ -22,10 +23,17 @@ from evals.asset_snapshot.runner import StockSnapshotEvaluator
 
 
 class FakeGenerationClient(BaseChatModelClient):
-    def __init__(self, asset: str, data_scope: str) -> None:
+    def __init__(
+        self,
+        asset: str,
+        data_scope: str,
+        peers: list[CompetitivePeer] | None = None,
+    ) -> None:
         self.asset = asset
         self.data_scope = data_scope
         self.calls = 0
+        self.last_prompt = ""
+        self.peers = peers or []
 
     @property
     def model_name(self) -> str:
@@ -33,6 +41,7 @@ class FakeGenerationClient(BaseChatModelClient):
 
     async def generate(self, message: str) -> str:
         self.calls += 1
+        self.last_prompt = message
         return json.dumps(
             {
                 "asset": self.asset,
@@ -43,7 +52,7 @@ class FakeGenerationClient(BaseChatModelClient):
                     "business activity."
                 ),
                 "market_context": "It operates in the supplied industry context.",
-                "competitive_landscape": [],
+                "competitive_landscape": [peer.model_dump() for peer in self.peers],
                 "structural_drivers": [
                     {
                         "title": "Durable demand",
@@ -112,7 +121,11 @@ async def test_frozen_providers_return_exact_case_fixtures() -> None:
 
     assert profile == case.profile_fixture
     assert profile is not case.profile_fixture
-    assert peers == case.peers_fixture
+    assert case.peers_fixture is not None
+    assert [p.ticker for p in peers.peers] == [
+        p.ticker for p in case.peers_fixture.peers
+    ]
+    assert all(p.profile is None for p in peers.peers)
     assert fundamentals == case.fundamentals_fixture
 
 
@@ -121,6 +134,67 @@ def test_frozen_execution_module_has_no_live_vendor_dependencies() -> None:
 
     assert "yfinance" not in source
     assert "fmp" not in source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_id",
+    ["amzn_peer_profiles_001", "ma_sparse_peers_001", "cloudx_unrelated_peer_001"],
+)
+async def test_frozen_enrichment_reaches_generation_and_saved_evidence(case_id) -> None:
+    case = next(c for c in load_dataset() if c.id == case_id)
+    client = FakeGenerationClient(case.request.asset, "profile_with_peers")
+    execution = build_frozen_execution(case, client)
+
+    result = await execution.runner.run_result(case.request)
+
+    assert case.peers_fixture is not None
+    assert result.evidence.company_peers_context == case.peers_fixture
+    assert execution.profile_provider.calls == 1 + len(case.peers_fixture.peers)
+    assert execution.peers_provider.calls == 1
+    for peer in case.peers_fixture.peers:
+        assert peer.ticker in client.last_prompt
+        if peer.profile:
+            assert peer.profile.business_summary in client.last_prompt
+    if case_id == "ma_sparse_peers_001":
+        assert (
+            "Peer profile unavailable. Retain this provider-reported"
+            in client.last_prompt
+        )
+    assert "why_competitor=Not available" not in client.last_prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_id",
+    [
+        "amzn_peer_profiles_001",
+        "ma_sparse_peers_001",
+        "cloudx_unrelated_peer_001",
+    ],
+)
+async def test_graph_accepts_and_preserves_qualified_provider_peers(case_id) -> None:
+    case = next(c for c in load_dataset() if c.id == case_id)
+    assert case.peers_fixture is not None
+    peers = [
+        CompetitivePeer(
+            ticker=peer.ticker,
+            name=peer.name or peer.ticker,
+            competition_area="Provider-reported peer; direct overlap is unconfirmed.",
+            why_competitor="Provider-reported peer; direct competition is unconfirmed.",
+            why_it_matters="Specific impact is not established by supplied evidence.",
+        )
+        for peer in case.peers_fixture.peers
+    ]
+    client = FakeGenerationClient(case.request.asset, "profile_with_peers", peers)
+    execution = build_frozen_execution(case, client)
+
+    result = await execution.runner.run_result(case.request)
+
+    assert result.snapshot.competitive_landscape == peers
+    assert result.evidence.company_peers_context == case.peers_fixture
+    assert CompetitiveEvidenceGrader().grade(case, result.snapshot).passed
+    assert "Enrichment explains and" in client.last_prompt
 
 
 @pytest.mark.asyncio
@@ -248,7 +322,7 @@ async def test_report_writes_json_and_markdown(tmp_path: Path) -> None:
     assert markdown_path.exists()
     assert "schema_validity" in json_path.read_text()
     markdown = markdown_path.read_text()
-    assert "Deterministic score: `7/7 (100.0%)`" in markdown
+    assert "Deterministic score: `8/8 (100.0%)`" in markdown
     assert "Semantic score: `1.00 / 2 (1/5 graded)`" in markdown
     assert "| `groundedness` | 1 / 2 | grounding_failure |" in markdown
     assert "Source field: `business_or_asset_profile`" in markdown

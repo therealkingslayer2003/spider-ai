@@ -38,7 +38,9 @@ async def test_company_peers_tool_returns_provider_peers() -> None:
     provider.get_company_peers.return_value = context
     profile = make_profile()
 
-    result = await CompanyPeersTool(provider=provider).run(
+    result = await CompanyPeersTool(
+        provider=provider, profile_tool=AsyncMock(run=AsyncMock(return_value=None))
+    ).run(
         asset_profile_context=profile,
     )
 
@@ -54,7 +56,7 @@ async def test_company_peers_tool_returns_empty_peers_when_provider_fails() -> N
     provider.get_company_peers.side_effect = RuntimeError("fmp failed")
     profile = make_profile()
 
-    result = await CompanyPeersTool(provider=provider).run(
+    result = await CompanyPeersTool(provider=provider, profile_tool=AsyncMock()).run(
         asset_profile_context=profile,
     )
 
@@ -67,7 +69,7 @@ async def test_company_peers_tool_returns_empty_peers_when_provider_fails() -> N
 async def test_company_peers_tool_returns_empty_peers_without_provider() -> None:
     profile = make_profile()
 
-    result = await CompanyPeersTool(provider=None).run(
+    result = await CompanyPeersTool(provider=None, profile_tool=AsyncMock()).run(
         asset_profile_context=profile,
     )
 

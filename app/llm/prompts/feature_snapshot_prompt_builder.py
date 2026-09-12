@@ -91,10 +91,13 @@ class StockSnapshotPromptBuilder:
         peers = "\n".join(
             (
                 f"- {self._format_optional(peer.name)}"
-                f"{f' ({peer.ticker})' if peer.ticker else ''}: "
-                f"competition_area={self._format_optional(peer.competition_area)}; "
-                f"why_competitor={self._format_optional(peer.why_competitor)}; "
-                f"why_it_matters={self._format_optional(peer.why_it_matters)}"
+                f"{f' ({peer.ticker})' if peer.ticker else ''}\n"
+                + (
+                    self._build_profile_context_section(peer.profile)
+                    if peer.profile is not None
+                    else "Peer profile unavailable. Retain this provider-reported "
+                    "peer and state that specific overlap and impact are unconfirmed."
+                )
             )
             for peer in company_peers_context.peers
         )
@@ -103,7 +106,7 @@ class StockSnapshotPromptBuilder:
             f"Provider: {company_peers_context.provider}\n"
             f"Asset: {company_peers_context.asset}\n"
             f"Fetched at: {company_peers_context.fetched_at.isoformat()}\n"
-            f"Peers:\n{peers}"
+            f"Provider-reported peers (enrichment is optional):\n{peers}"
         )
 
     def _build_fundamentals_context_section(

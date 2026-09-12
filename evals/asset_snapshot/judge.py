@@ -27,6 +27,22 @@ Judge only against the supplied request, normalized provider fixtures, explicit
 expectations, and rubric. Do not use current market knowledge, current news,
 stock prices, or facts not supplied here.
 
+Peer lists establish provider-reported peer relationships, not necessarily direct
+competition. Every distinct identifiable supplied peer should be acknowledged,
+regardless of enrichment availability. Nested peer
+profiles are factual evidence; competition_area, why_competitor and why_it_matters
+are generated analytical conclusions. Accept reasonable overlap and potential
+economic mechanisms inferred from target and candidate profiles, not unsupported
+facts or measured impacts. Do not require verbatim explanations in fixtures.
+For groundedness and company_specificity, penalize omitted provider-reported peers,
+unsupported claims of direct competition, and bare placeholder explanations.
+Do NOT penalize inclusion merely because a peer profile is missing or its business
+differs from the target. Accept an attributed provider peer with an explicit
+qualification that overlap or economic impact is unconfirmed. This is substantive
+uncertainty, not a placeholder. When profiles support meaningful overlap, require
+an evidence-based explanation rather than a blanket disclaimer. Empty landscapes
+are appropriate when no identifiable peers were supplied, not when enrichment fails.
+
 Return only JSON, example:
 {
   "score": 0,
@@ -266,7 +282,10 @@ def default_semantic_graders(
                 "0 = material unsupported factual claims or contradictions. "
                 "1 = mostly grounded with weak extrapolation. "
                 "2 = factual statements align with supplied fixtures and inferences "
-                "are reasonable. Missing context must not be invented."
+                "are reasonable. Missing context must not be invented. Competitive "
+                "mechanisms must follow from supplied facts; peer-list membership "
+                "alone supports provider attribution, not direct competition. "
+                "Explicit uncertainty about missing overlap or impact is valid."
             ),
             failure_label="grounding_failure",
             client=client,
@@ -277,7 +296,10 @@ def default_semantic_graders(
                 "0 = boilerplate reusable for unrelated companies. "
                 "1 = some company or industry specificity. "
                 "2 = strongly tied to the supplied business model, dependencies, "
-                "competitive context, and available financial signals."
+                "competitive context, and available financial signals. If candidate "
+                "profiles establish clear overlap, generic disclaimers do not "
+                "deserve full credit. With sparse evidence, provider attribution "
+                "and an accurate limitation are appropriate; dropping the peer is not."
             ),
             failure_label="generic_risk",
             client=client,

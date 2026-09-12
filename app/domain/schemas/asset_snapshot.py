@@ -27,15 +27,24 @@ class BaseAssetSnapshot(BaseModel):
 class StockAssetSnapshot(BaseAssetSnapshot):
     business_or_asset_profile: str
     market_context: str
-    competitive_landscape: list["CompetitivePeer"]
+    competitive_landscape: list["CompetitivePeer"] = Field(
+        description="Provider-reported peers with qualified relationship explanations."
+    )
 
 
 class CompetitivePeer(BaseModel):
     ticker: str | None = None
     name: str
     competition_area: str
-    why_competitor: str
-    why_it_matters: str
+    why_competitor: str = Field(
+        description=(
+            "Supported competitive overlap, or provider peer attribution with an "
+            "explicit qualification when direct competition is unconfirmed."
+        )
+    )
+    why_it_matters: str = Field(
+        description="Supported potential impact, or an explicit evidence limitation."
+    )
 
 
 class StructuralDriver(BaseModel):

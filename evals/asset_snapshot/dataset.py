@@ -9,9 +9,9 @@ from evals.asset_snapshot.models import ReviewStatus, StockSnapshotEvalCase
 
 logger = logging.getLogger(__name__)
 
-DATASET_VERSION = "stock_snapshot_v1"
+DATASET_VERSION = "stock_snapshot_v1_provider_peers"
 DEFAULT_DATASET_PATH = (
-    Path(__file__).resolve().parents[1] / "datasets" / f"{DATASET_VERSION}.jsonl"
+    Path(__file__).resolve().parents[1] / "datasets" / "stock_snapshot_v1.jsonl"
 )
 
 

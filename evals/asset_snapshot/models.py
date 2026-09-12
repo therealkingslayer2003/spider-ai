@@ -89,6 +89,17 @@ class StockSnapshotEvalCase(BaseModel):
             ):
                 raise ValueError("Financial fixtures require a profile fixture")
 
+        peers = self.peers_fixture.peers if self.peers_fixture else []
+        for peer in peers:
+            if peer.profile is not None and (
+                not peer.ticker
+                or peer.profile.asset.upper() != peer.ticker.upper()
+                or peer.profile.asset_type is not AssetType.STOCK
+            ):
+                raise ValueError(
+                    "Peer profile must match its candidate ticker and stock type"
+                )
+
         return self
 
 
