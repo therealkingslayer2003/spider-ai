@@ -129,6 +129,34 @@ async def test_frozen_providers_return_exact_case_fixtures() -> None:
     assert fundamentals == case.fundamentals_fixture
 
 
+@pytest.mark.asyncio
+async def test_frozen_execution_tool_caches_are_isolated_between_cases() -> None:
+    case = next(case for case in load_dataset() if case.id == "cloudx_saas_001")
+    client = FakeGenerationClient(case.request.asset, "profile_with_financial_signals")
+    execution = build_frozen_execution(case, client)
+    await execution.runner.run(case.request)
+    profile_calls = execution.profile_provider.calls
+    await execution.runner.run(case.request)
+
+    assert execution.profile_provider.calls == profile_calls
+    assert execution.peers_provider.calls == 1
+    assert execution.fundamentals_provider.calls == 1
+    assert client.calls == 2  # Only tool results are cached, not LLM generation.
+
+    other_case = case.model_copy(deep=True)
+    assert other_case.profile_fixture is not None
+    other_case.profile_fixture.business_summary = "Distinct evidence for this case."
+    other_client = FakeGenerationClient(case.request.asset, "profile_only")
+    other_execution = build_frozen_execution(other_case, other_client)
+    await other_execution.runner.run(other_case.request)
+
+    assert other_execution.profile_provider.calls > 0
+    assert other_execution.peers_provider.calls == 1
+    assert other_execution.fundamentals_provider.calls == 1
+    assert "Distinct evidence for this case." in other_client.last_prompt
+    assert "Distinct evidence for this case." not in client.last_prompt
+
+
 def test_frozen_execution_module_has_no_live_vendor_dependencies() -> None:
     source = inspect.getsource(frozen_module).lower()
 

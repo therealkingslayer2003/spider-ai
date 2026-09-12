@@ -10,11 +10,15 @@ from app.domain.schemas.asset_snapshot import AssetType
 
 @pytest.fixture(autouse=True)
 def clear_dependency_caches() -> Iterator[None]:
+    dependencies.get_company_peers_tool.cache_clear()
+    dependencies.get_company_fundamentals_tool.cache_clear()
     dependencies.get_snapshot_artifact_persistence_service.cache_clear()
     dependencies.get_database.cache_clear()
     dependencies.get_optional_fmp_provider.cache_clear()
     dependencies.get_profile_tool.cache_clear()
     yield
+    dependencies.get_company_peers_tool.cache_clear()
+    dependencies.get_company_fundamentals_tool.cache_clear()
     dependencies.get_snapshot_artifact_persistence_service.cache_clear()
     dependencies.get_database.cache_clear()
     dependencies.get_optional_fmp_provider.cache_clear()
@@ -42,7 +46,6 @@ def test_optional_fmp_provider_is_available_when_configured(
     settings = MagicMock(
         fmp_enabled=True,
         fmp_api_key="configured-key",
-        fmp_cache_ttl_seconds=86_400,
     )
     monkeypatch.setattr(dependencies, "get_settings", lambda: settings)
     monkeypatch.setattr(
@@ -87,3 +90,15 @@ async def test_profile_tool_receives_composed_provider_dependencies(
     assert result is None
     primary.get_company_profile.assert_awaited_once()
     fallback.get_company_profile.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "factory_name",
+    ["get_profile_tool", "get_company_peers_tool", "get_company_fundamentals_tool"],
+)
+def test_tool_factories_reuse_instances_across_requests(factory_name, monkeypatch):
+    monkeypatch.setattr(dependencies, "get_yfinance_provider", lambda: AsyncMock())
+    monkeypatch.setattr(dependencies, "get_optional_fmp_provider", lambda: None)
+    factory = getattr(dependencies, factory_name)
+
+    assert factory() is factory()

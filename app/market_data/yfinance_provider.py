@@ -12,11 +12,6 @@ from app.domain.schemas.asset_snapshot import AssetType
 from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
-from app.market_data.cache import (
-    AssetProfileCache,
-    InMemoryTTLAssetProfileCache,
-    InMemoryTTLCache,
-)
 from app.market_data.providers import MarketDataProviderError
 
 logger = logging.getLogger(__name__)
@@ -27,12 +22,8 @@ class YFinanceCompanyProfileProvider:
 
     def __init__(
         self,
-        cache: AssetProfileCache | None = None,
-        fundamentals_cache: InMemoryTTLCache | None = None,
         ticker_factory: Callable[[str], Any] = yfinance.Ticker,
     ) -> None:
-        self._cache = cache or InMemoryTTLAssetProfileCache()
-        self._fundamentals_cache = fundamentals_cache or InMemoryTTLCache()
         self._ticker_factory = ticker_factory
 
     async def get_company_profile(
@@ -52,16 +43,6 @@ class YFinanceCompanyProfileProvider:
             return None
 
         normalized_asset = asset.upper()
-        cached = self._cache.get(normalized_asset, asset_type)
-
-        if cached is not None:
-            if settings.app_log_flow_steps:
-                logger.info(
-                    "yfinance_provider.cache_hit asset=%s asset_type=%s",
-                    normalized_asset,
-                    asset_type.value,
-                )
-            return cached
 
         try:
             if settings.app_log_flow_steps:
@@ -82,11 +63,6 @@ class YFinanceCompanyProfileProvider:
         profile = self._normalize_info(normalized_asset, asset_type, info)
 
         if profile is not None:
-            self._cache.set(profile)
-            self._fundamentals_cache.set(
-                self._fundamentals_cache_key(normalized_asset),
-                self._normalize_fundamentals(normalized_asset, info),
-            )
             if settings.app_log_flow_steps:
                 logger.info(
                     "yfinance_provider.fetch.success asset=%s provider=%s",
@@ -117,20 +93,13 @@ class YFinanceCompanyProfileProvider:
         ):
             return self._empty_fundamentals(asset)
 
-        cache_key = self._fundamentals_cache_key(asset)
-        cached = self._fundamentals_cache.get(cache_key)
-        if isinstance(cached, CompanyFundamentalsContext):
-            return cached
-
         try:
             info = await asyncio.to_thread(self._fetch_info, asset)
         except Exception:
             logger.exception("yfinance_provider.fundamentals.failed asset=%s", asset)
             return self._empty_fundamentals(asset)
 
-        context = self._normalize_fundamentals(asset, info)
-        self._fundamentals_cache.set(cache_key, context)
-        return context
+        return self._normalize_fundamentals(asset, info)
 
     async def get_asset_profile(
         self,
@@ -197,10 +166,6 @@ class YFinanceCompanyProfileProvider:
     @staticmethod
     def _empty_fundamentals(asset: str) -> CompanyFundamentalsContext:
         return CompanyFundamentalsContext(asset=asset, provider="yfinance_unavailable")
-
-    @staticmethod
-    def _fundamentals_cache_key(asset: str) -> str:
-        return f"yfinance:fundamentals:{asset}"
 
     def _first_string(self, info: Mapping[str, Any], *keys: str) -> str | None:
         for key in keys:

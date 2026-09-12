@@ -28,12 +28,9 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "llama3.1:8b"
     ollama_temperature: float = 0.2
 
-    asset_profile_cache_ttl_seconds: int = 60 * 60 * 24
-
     fmp_enabled: bool = False
     fmp_api_key: str | None = None
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
-    fmp_cache_ttl_seconds: int = 60 * 60 * 24
 
     model_config = SettingsConfigDict(
         env_file=".env",

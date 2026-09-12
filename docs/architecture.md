@@ -35,9 +35,9 @@ Client -> HTTP -> FastAPI endpoints (app/api/v1/endpoints)
 - **API**: `app/main.py` mounts the v1 router (`/api/v1`) defined at [app/api/v1/router.py](app/api/v1/router.py). Endpoints live under [app/api/v1/endpoints](app/api/v1/endpoints).
 - **Services**: `app/services/` owns application-level use cases. `AssetSnapshotService` delegates to the Asset Snapshot graph runner; `ChatService` calls the LLM client directly.
 - **Asset Snapshot agent**: `app/agents/asset_snapshot/` owns Asset Snapshot orchestration: router graph, stock subgraph, graph states, nodes, runner, resolver helpers, and capability tools.
-- **Capability tools**: `app/agents/asset_snapshot/tools/` exposes provider-normalized data to graph nodes through concrete tool classes such as `CompanyProfileTool`, `CompanyPeersTool`, and `CompanyFundamentalsTool`.
+- **Capability tools**: `app/agents/asset_snapshot/tools/` exposes provider-normalized data to graph nodes through concrete tool classes such as `CompanyProfileTool`, `CompanyPeersTool`, and `CompanyFundamentalsTool`, and owns their five-hour result caches.
 - **Schemas**: Pydantic models in `app/domain/schemas/` define request/response models and normalized provider context.
-- **Market data**: `app/market_data/` contains provider protocols, in-memory TTL caches, the yfinance profile provider, and optional FMP provider.
+- **Market data**: `app/market_data/` contains provider protocols, the yfinance profile provider, and optional FMP provider. Adapters fetch and normalize data without maintaining result caches.
 - **LLM clients**: Adapter layer in `app/llm/` (e.g. `ollama_client.py`) — wraps `langchain-ollama`/`ChatOllama`.
 - **Prompts**: `app/llm/prompts/` contains stock prompt construction and system prompts.
 - **Core**: `app/core/` contains configuration, rich terminal logging, and shared utilities.
@@ -61,6 +61,7 @@ app/agents/asset_snapshot/
     nodes.py                    # stock-specific graph nodes
     state.py                    # stock-specific graph state
   tools/
+    cache.py                    # five-hour in-memory tool result cache
     company_profile.py          # yfinance primary, FMP fallback
     company_peers.py            # Peer discovery and cached profile enrichment
     company_fundamentals.py     # optional yfinance signals, empty fallback
@@ -221,11 +222,12 @@ normalized company facts. `competition_area`, `why_competitor`, and
 `why_it_matters` belong only to the generated `CompetitivePeer` output; neither
 the provider nor the tool invents those explanations.
 
-Enrichment uses the existing shared profile-provider caches, with 10 distinct
+Enrichment uses the shared `CompanyProfileTool` result cache, with 10 distinct
 non-target tickers per run, 3 concurrent lookups, and a 15-second timeout per
 lookup by default. These limits are constructor options on `CompanyPeersTool`.
 Candidate ordering is retained, duplicate symbols are fetched once, and failed
-or excess candidates remain identity-only. Provider-cached objects are not mutated.
+or excess candidates remain identity-only. Provider results and cached tool
+results are not mutated by callers; tools return independent deep copies.
 The timeout bounds awaiting the profile tool; it cannot forcibly stop an already
 running synchronous yfinance request in its worker thread.
 
@@ -258,18 +260,45 @@ Provider responsibilities:
 - avoid exposing raw yfinance/FMP responses outside providers
 - return `None` or empty contexts when no useful data is available
 
-yfinance is the required free/default profile provider for stocks and may also
-normalize selected optional signals from the same `.info` payload. FMP is
+yfinance is the required free/default profile provider for stocks and also
+normalizes selected optional signals from `.info`. FMP is
 limited to profile fallback and peers when `FMP_ENABLED=true` and `FMP_API_KEY`
 is set. It does not call premium ratios, growth, or income-statement endpoints
 for Asset Snapshot. Static hardcoded peer and sector mappings are not production
 data sources.
 
-`InMemoryTTLAssetProfileCache` caches successful yfinance profile contexts by
-`asset + asset_type`. The same yfinance provider instance caches normalized
-optional signals, avoiding a second `.info` call in the normal workflow.
-`InMemoryTTLCache` is also used for FMP contexts. Defaults are 24 hours and
-configurable via `ASSET_PROFILE_CACHE_TTL_SECONDS` and `FMP_CACHE_TTL_SECONDS`.
+### Tool result caching
+
+[`InMemoryTTLCache`](../app/agents/asset_snapshot/tools/cache.py) is the only
+application result-cache implementation. Each capability tool owns a cache with
+a five-hour, non-sliding TTL measured from insertion:
+
+- `CompanyProfileTool`: successful profiles, including profile fallback results.
+- `CompanyPeersTool`: nonempty provider-reported peer lists after enrichment,
+  including lists whose enrichment was only partially successful.
+- `CompanyFundamentalsTool`: contexts containing at least one financial signal;
+  a numeric zero is a valid signal.
+
+Keys include capability, normalized ticker, and asset type. Fundamentals keys
+also include the input profile's provider, because provider eligibility may
+depend on that source. Empty results and failures are not cached. On access, an
+expired entry is discarded and the tool calls its provider again. There is no
+provider result cache that can serve stale data after this expiry. Profile and
+fundamentals cache misses can therefore cause separate yfinance `.info` requests.
+Vendor fallback remains inside tools, independent of caching.
+
+Peer-list and profile TTLs are independent. Refreshing an expired peer list
+fetches fresh discovery data; enrichment can reuse a still-valid profile-tool
+entry. Nonempty peer lists with missing enrichment stay cached until their TTL
+expires. Cached contexts retain original `fetched_at` values, and tools deep-copy
+them on storage/return so consumers cannot modify shared evidence.
+
+The `@cache` decorators in `app/api/dependencies.py` reuse **objects**, not
+vendor responses. They keep provider/tool instances alive across API requests
+and must remain in place. Tool result caches are per-process, have lazy expiry,
+and reset on restart; they are not persisted or shared between workers. Concurrent
+misses are not coalesced. Tests can inject a cache with a custom TTL and clock.
+The old provider-cache TTL environment settings have been removed.
 
 ### Frozen Asset Snapshot v1 data contract
 
@@ -494,11 +523,9 @@ Key environment variables (in `.env`):
 - `OLLAMA_BASE_URL` — base URL used by the API to reach Ollama. When running via Docker Compose set this to `http://ollama:11434` so the `api` container reaches the `ollama` container on the compose network (using `http://localhost:11434` from inside `api` will not reach the `ollama` container).
 - `OLLAMA_CHAT_MODEL` — model name expected by the code (e.g. `llama3.1:8b`).
 - `OLLAMA_TEMPERATURE` — sampling temperature.
-- `ASSET_PROFILE_CACHE_TTL_SECONDS` — TTL for cached market profile context.
 - `FMP_ENABLED` — enables optional FMP provider calls.
 - `FMP_API_KEY` — API key for Financial Modeling Prep.
 - `FMP_BASE_URL` — FMP API base URL.
-- `FMP_CACHE_TTL_SECONDS` — TTL for cached FMP contexts.
 - `API_V1_PREFIX` — currently `/api/v1`.
 - `SPIDER_AI_DB_PATH` — local SQLite file path; defaults to
   `<project-root>/data/spider-ai.db`.
@@ -577,7 +604,7 @@ RUN_LIVE_LLM_RESOLVER_TESTS=true uv run pytest tests/test_asset_resolver_live.py
 - `app/agents/asset_snapshot/*.py` — package-level Asset Snapshot helpers such as the resolver
 - `app/services/*.py` — service layer (business logic)
 - `app/llm/*.py` — LLM client adapters (Ollama client)
-- `app/market_data/*.py` — yfinance/FMP providers and caches
+- `app/market_data/*.py` — yfinance/FMP providers and normalization
 - `app/agents/asset_snapshot/tools/*.py` — workflow-facing Asset Snapshot tools
 - `tests/test_asset_resolver_live.py` — opt-in live LLM resolver tests
 - `pyproject.toml`, `uv.lock` — dependency declaration and lockfile

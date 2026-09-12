@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from app.agents.asset_snapshot.tools.cache import InMemoryTTLCache
 from app.agents.asset_snapshot.tools.company_profile import CompanyProfileTool
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
@@ -20,6 +21,7 @@ class CompanyPeersTool:
         max_profiles: int = 10,
         concurrency: int = 3,
         profile_timeout_seconds: float = 15.0,
+        cache: InMemoryTTLCache | None = None,
     ) -> None:
         if max_profiles < 1 or concurrency < 1 or profile_timeout_seconds <= 0:
             raise ValueError("Peer enrichment limits must be positive")
@@ -28,15 +30,24 @@ class CompanyPeersTool:
         self._max_profiles = max_profiles
         self._concurrency = concurrency
         self._profile_timeout_seconds = profile_timeout_seconds
+        self._cache = cache if cache is not None else InMemoryTTLCache()
 
     async def run(
         self,
         asset_profile_context: AssetProfileContext | None,
     ) -> CompanyPeersContext:
-        asset = asset_profile_context.asset.upper() if asset_profile_context else ""
+        asset = (
+            asset_profile_context.asset.strip().upper() if asset_profile_context else ""
+        )
 
         if self._provider is None or asset_profile_context is None:
             return self._empty_context(asset)
+
+        cache_key = f"company_peers:{asset_profile_context.asset_type.value}:{asset}"
+        cached = self._cache.get(cache_key)
+        if isinstance(cached, CompanyPeersContext):
+            logger.info("company_peers.cache_hit asset=%s", asset)
+            return cached.model_copy(deep=True)
 
         try:
             context = await self._provider.get_company_peers(
@@ -116,6 +127,8 @@ class CompanyPeersTool:
             len(symbols),
             sum(profile is not None for profile in profiles.values()),
         )
+        if context.peers:
+            self._cache.set(cache_key, context.model_copy(deep=True))
         return context
 
     @staticmethod

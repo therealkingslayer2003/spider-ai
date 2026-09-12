@@ -12,7 +12,6 @@ from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
 from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
-from app.market_data.cache import InMemoryTTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ class FmpProvider:
         api_key: str | None = None,
         enabled: bool | None = None,
         base_url: str | None = None,
-        cache: InMemoryTTLCache | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         settings = get_settings()
@@ -37,7 +35,6 @@ class FmpProvider:
         self._api_key = self._normalize_api_key(configured_api_key)
         self._enabled = enabled if enabled is not None else settings.fmp_enabled
         self._base_url = self._normalize_base_url(configured_base_url)
-        self._cache = cache or InMemoryTTLCache()
         self._client = client
 
         # Set only when the response explicitly indicates
@@ -60,12 +57,6 @@ class FmpProvider:
         if not symbol:
             return None
 
-        cache_key = f"fmp:profile:{symbol}:{asset_type.value}"
-        cached = self._cache.get(cache_key)
-
-        if isinstance(cached, AssetProfileContext):
-            return cached
-
         rows = await self._get_list(
             path="/profile",
             params={"symbol": symbol},
@@ -73,16 +64,11 @@ class FmpProvider:
         if not rows:
             return None
 
-        profile = self._normalize_profile(
+        return self._normalize_profile(
             asset=symbol,
             asset_type=asset_type,
             row=rows[0],
         )
-
-        if profile is not None:
-            self._cache.set(cache_key, profile)
-
-        return profile
 
     async def get_company_peers(
         self,
@@ -97,26 +83,15 @@ class FmpProvider:
         if not symbol or not self.is_configured:
             return self._empty_peers(symbol)
 
-        cache_key = f"fmp:peers:{symbol}"
-        cached = self._cache.get(cache_key)
-
-        if isinstance(cached, CompanyPeersContext):
-            return cached
-
         rows = await self._get_list(
             path="/stock-peers",
             params={"symbol": symbol},
         )
 
-        context = self._normalize_peers(
+        return self._normalize_peers(
             asset=symbol,
             rows=rows,
         )
-
-        if rows:
-            self._cache.set(cache_key, context)
-
-        return context
 
     async def get_fundamentals(
         self,

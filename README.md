@@ -73,7 +73,7 @@ subgraph is implemented today.
 - Optional ambiguous asset resolver before tool execution
 - yfinance-backed company profile provider for stocks
 - Optional FMP integration for profile fallback and peers
-- In-memory TTL caches for provider contexts
+- Five-hour in-memory TTL caches for normalized tool results
 - Local SQLite persistence for validated Asset Snapshot research artifacts
 - Structured `StockAssetSnapshot` output with profile, drivers, and risks
 - Rich terminal debug logs for workflow and LLM tracing
@@ -172,7 +172,6 @@ To enable FMP peer context and profile fallback:
 FMP_ENABLED=true
 FMP_API_KEY=your_fmp_api_key
 FMP_BASE_URL=https://financialmodelingprep.com/stable
-FMP_CACHE_TTL_SECONDS=86400
 ```
 
 When FMP is disabled, missing, rate-limited, or incomplete, Asset Snapshot still
@@ -182,8 +181,8 @@ data sources.
 
 FMP returns **provider-reported peers**, not necessarily direct competitors.
 `CompanyPeersTool` enriches up to 10 distinct candidate tickers using the shared
-`CompanyProfileTool` (yfinance first, configured FMP fallback). Existing provider
-TTL caches are reused; up to 3 profile lookups run concurrently with a 15-second
+`CompanyProfileTool` (yfinance first, configured FMP fallback). Its tool-level
+TTL cache is reused; up to 3 profile lookups run concurrently with a 15-second
 timeout per lookup. Failed or unattempted candidates remain identity-only.
 The LLM compares retrieved business profiles to generate `competition_area`,
 `why_competitor`, and `why_it_matters`; these are analytical conclusions, not
@@ -196,6 +195,18 @@ No economic mechanism is invented just to fill an entry. An empty landscape is
 appropriate when no identifiable peers were supplied. Enriched profiles and their
 provenance are saved in evidence JSON.
 No database schema or public response shape changed.
+
+`CompanyProfileTool`, `CompanyPeersTool`, and `CompanyFundamentalsTool` cache
+successful normalized results for **five hours** in memory. Peer results include
+the completed enrichment attempt, even when some profiles are unavailable.
+Cache hits return independent copies and do not extend the TTL. Empty results or
+failures are not cached. After expiry, the next call fetches fresh vendor data
+through the provider; there is no additional provider-level data cache.
+Each tool's TTL is independent, so still-valid peer profile entries can be reused
+when a peer list is refreshed. The `@cache` decorators on dependency factories
+reuse tool/provider **objects**, keeping these data caches alive across requests.
+Caches are process-local and reset on restart. The old provider-cache TTL
+environment settings are no longer used.
 
 Asset Snapshot v1 intentionally stays business-model-first:
 
@@ -327,7 +338,7 @@ app/
   core/                 # Config, logging, exceptions
   domain/schemas/       # Pydantic request/response models
   llm/                  # LLM provider abstractions
-  market_data/          # yfinance/FMP providers and caches
+  market_data/          # yfinance/FMP providers and normalization
   services/             # Business logic
   agents/.../tools/     # Workflow-facing Asset Snapshot tools
 

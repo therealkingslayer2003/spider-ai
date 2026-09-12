@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 from typing import Any
 from unittest.mock import AsyncMock
 from urllib.parse import urlencode
@@ -8,7 +8,6 @@ import pytest
 from app.agents.asset_snapshot.tools import CompanyProfileTool
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import AssetType
-from app.market_data.cache import InMemoryTTLAssetProfileCache, InMemoryTTLCache
 from app.market_data.fmp_provider import FmpProvider
 from app.market_data.yfinance_provider import YFinanceCompanyProfileProvider
 
@@ -99,25 +98,26 @@ async def test_yfinance_provider_requires_useful_company_profile_data() -> None:
 
 
 @pytest.mark.asyncio
-async def test_yfinance_provider_uses_cache_on_second_call() -> None:
+async def test_yfinance_provider_fetches_fresh_data_on_every_call() -> None:
     calls: list[str] = []
+    info = raw_yfinance_info()
     provider = YFinanceCompanyProfileProvider(
-        cache=InMemoryTTLAssetProfileCache(),
-        ticker_factory=ticker_factory(raw_yfinance_info(), calls),
+        ticker_factory=ticker_factory(info, calls),
     )
 
     first = await provider.get_company_profile("AAPL", AssetType.STOCK)
+    info["longName"] = "Updated company name"
     second = await provider.get_company_profile("AAPL", AssetType.STOCK)
 
-    assert first == second
-    assert calls == ["AAPL"]
+    assert first is not None and first.name == "Apple Inc."
+    assert second is not None and second.name == "Updated company name"
+    assert calls == ["AAPL", "AAPL"]
 
 
 @pytest.mark.asyncio
 async def test_yfinance_provider_normalizes_optional_financial_signals() -> None:
     calls: list[str] = []
     provider = YFinanceCompanyProfileProvider(
-        fundamentals_cache=InMemoryTTLCache(),
         ticker_factory=ticker_factory(raw_yfinance_info(), calls),
     )
 
@@ -137,7 +137,7 @@ async def test_yfinance_provider_normalizes_optional_financial_signals() -> None
     assert "debtToEquity" not in serialized
     assert "market_cap" not in serialized
     assert "marketCap" not in serialized
-    assert calls == ["AAPL"]
+    assert calls == ["AAPL", "AAPL"]
 
 
 @pytest.mark.asyncio
@@ -218,7 +218,7 @@ async def test_yfinance_provider_handles_malformed_financial_metadata() -> None:
     assert fundamentals.financial_currency is None
     assert fundamentals.last_fiscal_year_end is None
     assert fundamentals.most_recent_quarter is None
-    assert calls == ["AAPL"]
+    assert calls == ["AAPL", "AAPL"]
 
 
 @pytest.mark.asyncio
@@ -236,35 +236,6 @@ async def test_yfinance_provider_does_not_refetch_for_fmp_profile() -> None:
     assert fundamentals.revenue is None
     assert fundamentals.financial_currency is None
     assert calls == []
-
-
-@pytest.mark.asyncio
-async def test_asset_profile_cache_expires_after_ttl() -> None:
-    current_time = datetime(2026, 1, 1, tzinfo=UTC)
-
-    def now() -> datetime:
-        return current_time
-
-    cache = InMemoryTTLAssetProfileCache(ttl=timedelta(seconds=1), now=now)
-    profile = AssetProfileContext(
-        asset="AAPL",
-        asset_type=AssetType.STOCK,
-        name="Apple Inc.",
-        sector=None,
-        industry=None,
-        business_summary=None,
-        exchange=None,
-        currency=None,
-        country=None,
-        provider="test",
-    )
-
-    cache.set(profile)
-    assert cache.get("AAPL", AssetType.STOCK) == profile
-
-    current_time = current_time + timedelta(seconds=2)
-
-    assert cache.get("AAPL", AssetType.STOCK) is None
 
 
 @pytest.mark.asyncio

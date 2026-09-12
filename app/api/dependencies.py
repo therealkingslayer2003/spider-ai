@@ -1,4 +1,3 @@
-from datetime import timedelta
 from functools import cache
 
 from fastapi import Depends
@@ -15,7 +14,6 @@ from app.core.config import get_settings
 from app.infrastructure.db.database import Database
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
-from app.market_data.cache import InMemoryTTLAssetProfileCache, InMemoryTTLCache
 from app.market_data.fmp_provider import FmpProvider
 from app.market_data.yfinance_provider import YFinanceCompanyProfileProvider
 from app.services.asset_snapshot_service import AssetSnapshotService
@@ -50,15 +48,7 @@ def get_snapshot_artifact_persistence_service() -> SnapshotArtifactPersistenceSe
 
 @cache
 def get_yfinance_provider() -> YFinanceCompanyProfileProvider:
-    settings = get_settings()
-    return YFinanceCompanyProfileProvider(
-        cache=InMemoryTTLAssetProfileCache(
-            ttl=timedelta(seconds=settings.asset_profile_cache_ttl_seconds),
-        ),
-        fundamentals_cache=InMemoryTTLCache(
-            ttl=timedelta(seconds=settings.asset_profile_cache_ttl_seconds),
-        ),
-    )
+    return YFinanceCompanyProfileProvider()
 
 
 @cache
@@ -71,13 +61,10 @@ def get_optional_fmp_provider() -> FmpProvider | None:
     ):
         return None
 
-    return FmpProvider(
-        cache=InMemoryTTLCache(
-            ttl=timedelta(seconds=settings.fmp_cache_ttl_seconds),
-        ),
-    )
+    return FmpProvider()
 
 
+@cache
 def get_company_peers_tool() -> CompanyPeersTool:
     return CompanyPeersTool(
         provider=get_optional_fmp_provider(),
@@ -85,6 +72,7 @@ def get_company_peers_tool() -> CompanyPeersTool:
     )
 
 
+@cache
 def get_company_fundamentals_tool() -> CompanyFundamentalsTool:
     return CompanyFundamentalsTool(provider=get_yfinance_provider())
 

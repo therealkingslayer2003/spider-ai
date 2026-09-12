@@ -23,7 +23,7 @@ def peers_provider(*tickers: str | None) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_enrichment_preserves_candidates_and_cache_without_mutation() -> None:
+async def test_enrichment_preserves_provider_candidates_without_mutation() -> None:
     provider = peers_provider("V", " v ", None, "MA")
     original = provider.get_company_peers.return_value.model_copy(deep=True)
     profile = make_profile("V")
@@ -44,7 +44,7 @@ async def test_enrichment_preserves_candidates_and_cache_without_mutation() -> N
 
 
 @pytest.mark.asyncio
-async def test_enrichment_reuses_provider_cache() -> None:
+async def test_enrichment_reuses_tool_cache() -> None:
     ticker_factory = MagicMock(
         return_value=MagicMock(
             info={
@@ -172,10 +172,13 @@ async def test_no_target_or_no_candidates_skips_profile_calls() -> None:
 
 @pytest.mark.asyncio
 async def test_composition_root_injects_shared_profile_tool(monkeypatch) -> None:
+    dependencies.get_company_peers_tool.cache_clear()
     provider = peers_provider("V")
     profiles = AsyncMock(run=AsyncMock(return_value=make_profile("V")))
     monkeypatch.setattr(dependencies, "get_optional_fmp_provider", lambda: provider)
     monkeypatch.setattr(dependencies, "get_profile_tool", lambda: profiles)
-    result = await dependencies.get_company_peers_tool().run(make_profile())
+    tool = dependencies.get_company_peers_tool()
+    dependencies.get_company_peers_tool.cache_clear()
+    result = await tool.run(make_profile())
     assert result.peers[0].profile is not None
     profiles.run.assert_awaited_once()

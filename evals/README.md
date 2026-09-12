@@ -119,6 +119,14 @@ The frozen providers are injected into the real
 The eval harness therefore exercises the same provider-facing contracts and
 normalized domain contexts as the application.
 
+Each `build_frozen_execution()` constructs fresh tools with isolated five-hour
+in-memory result caches. No API dependency-factory singleton is reused, so one
+case cannot receive another case's cached evidence, even for the same ticker.
+Repeated calls within one execution can reuse successful normalized results;
+empty results remain retryable. Peer cache entries include enrichment, not just
+the discovered identities. Expiry and fresh mocked vendor requests are covered
+by [`test_tool_caching.py`](../tests/test_tool_caching.py).
+
 The tools remain production code. The eval layer does not create alternative
 benchmark-specific tool behavior or pass raw fixture JSON to the model.
 
