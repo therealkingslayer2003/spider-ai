@@ -10,6 +10,7 @@ from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import (
     AssetSnapshotRequest,
     AssetType,
+    PeerRelationship,
 )
 from app.domain.schemas.asset_snapshot_evidence import (
     AssetSnapshotEvidence,
@@ -23,8 +24,12 @@ from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.snapshot_artifact_persistence_service import (
     SnapshotArtifactPersistenceService,
 )
+from evals.asset_snapshot.dataset import load_dataset
+from evals.asset_snapshot.frozen import build_frozen_execution
+from evals.asset_snapshot.graders import PeerCoverageGrader
 from tests.test_asset_snapshot_context_tools import make_profile
 from tests.test_database import make_evidence, make_snapshot, table_counts
+from tests.test_evals_execution import FakeGenerationClient
 
 
 @pytest.fixture
@@ -33,6 +38,47 @@ async def database(tmp_path: Path) -> AsyncIterator[Database]:
     await database.initialize()
     yield database
     await database.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_peer_tickers_restored_through_graph_service_and_database(
+    database: Database,
+) -> None:
+    case = next(c for c in load_dataset() if c.id == "aapl_stable_platform_peers_001")
+    assert case.peers_fixture is not None
+    generated_peers = [
+        PeerRelationship(
+            ticker=None,
+            name=peer.name,
+            peer_type="comparable",
+            relationship_area="Technology products",
+            why_relevant=(
+                "Provider-reported peer with broad industry similarities; "
+                "a specific causal impact is not established here."
+            ),
+        )
+        for peer in reversed(case.peers_fixture.peers)
+    ]
+    client = FakeGenerationClient("AAPL", "profile_with_peers", generated_peers)
+    execution = build_frozen_execution(case, client)
+    service = AssetSnapshotService(
+        execution.runner, SnapshotArtifactPersistenceService(database)
+    )
+
+    result = await service.get_snapshot(case.request)
+
+    assert [peer.ticker for peer in result.peer_landscape] == ["MSFT", "GOOGL"]
+    assert all(peer.ticker is None for peer in generated_peers)
+    assert "GOOGL" in client.last_prompt and "MSFT" in client.last_prompt
+    assert PeerCoverageGrader().grade(case, result).passed
+    assert client.calls == 1
+    async with database.session_factory() as session:
+        stored = await SnapshotResearchArtifactDao(session).get_latest_for_asset(
+            "AAPL", "stock"
+        )
+    assert stored is not None
+    assert stored.snapshot == result
+    assert stored.evidence.company_peers_context == case.peers_fixture
 
 
 @pytest.mark.asyncio

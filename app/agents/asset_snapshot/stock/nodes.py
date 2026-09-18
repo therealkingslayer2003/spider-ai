@@ -6,6 +6,7 @@ from app.agents.asset_snapshot.asset_resolver import (
     resolve_deterministic_asset,
     should_resolve_ambiguous_asset,
 )
+from app.agents.asset_snapshot.stock.peer_identity import restore_peer_tickers
 from app.agents.asset_snapshot.stock.state import StockSnapshotState
 from app.agents.asset_snapshot.tools import (
     CompanyFundamentalsTool,
@@ -298,6 +299,7 @@ async def validate_stock_snapshot_node(
             )
 
         peers = state.get("company_peers_context")
+        snapshot = restore_peer_tickers(snapshot, peers)
         if peers and peers.peers and not snapshot.peer_landscape:
             logger.warning(
                 "stock.validate_snapshot.empty_landscape candidates=%s profiles=%s "
