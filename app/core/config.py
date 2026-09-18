@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     spider_ai_db_path: Path = Field(default_factory=default_database_path)
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_chat_model: str = "llama3.1:8b"
+    ollama_chat_model: str = "qwen3:14b"
     ollama_temperature: float = 0.2
-
+    ollama_num_ctx: int = 16384
     fmp_enabled: bool = False
     fmp_api_key: str | None = None
     fmp_base_url: str = "https://financialmodelingprep.com/stable"

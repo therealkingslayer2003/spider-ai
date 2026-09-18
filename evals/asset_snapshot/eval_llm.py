@@ -1,7 +1,9 @@
 import logging
 import time
+from typing import cast, overload
 
 from langchain_ollama import ChatOllama
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.llm.base import BaseChatModelClient
@@ -25,7 +27,20 @@ class EvalOllamaClient(BaseChatModelClient):
             temperature=temperature,
         )
 
-    async def generate(self, message: str) -> str:
+    @overload
+    async def generate(self, message: str, *, response_schema: None = None) -> str: ...
+
+    @overload
+    async def generate[T: BaseModel](
+        self, message: str, *, response_schema: type[T]
+    ) -> T: ...
+
+    async def generate(
+        self,
+        message: str,
+        *,
+        response_schema: type[BaseModel] | None = None,
+    ) -> str | BaseModel:
         started = time.perf_counter()
         if self._settings.app_log_flow_steps:
             logger.info(
@@ -40,8 +55,13 @@ class EvalOllamaClient(BaseChatModelClient):
                 self._preview(message),
             )
         try:
-            response = await self._llm.ainvoke(message)
-            output = str(response.content)
+            output: str | BaseModel
+            if response_schema is not None:
+                structured_model = self._llm.with_structured_output(response_schema)
+                output = cast(BaseModel, await structured_model.ainvoke(message))
+            else:
+                response = await self._llm.ainvoke(message)
+                output = str(response.content)
         except Exception:
             logger.exception(
                 "eval.judge.llm.failed model=%s duration_seconds=%.3f",
@@ -51,16 +71,19 @@ class EvalOllamaClient(BaseChatModelClient):
             raise
         if self._settings.app_log_flow_steps:
             logger.info(
-                "eval.judge.llm.success model=%s output_chars=%s duration_seconds=%.3f",
+                "eval.judge.llm.success model=%s output_type=%s duration_seconds=%.3f",
                 self._model_name,
-                len(output),
+                type(output).__name__,
                 time.perf_counter() - started,
             )
         if self._settings.app_log_llm_outputs:
+            preview_text = (
+                output.model_dump_json() if isinstance(output, BaseModel) else output
+            )
             logger.debug(
                 "eval.judge.llm.output model=%s output=%s",
                 self._model_name,
-                self._preview(output),
+                self._preview(preview_text),
             )
         return output
 
