@@ -15,7 +15,6 @@ class StockSnapshotState(TypedDict, total=False):
     company_peers_context: CompanyPeersContext | None
     company_fundamentals_context: CompanyFundamentalsContext | None
     generation_prompt: str | None
-    raw_llm_output: str | None
     validated_output: StockAssetSnapshot | None
     data_scope: str | None
     errors: list[str]

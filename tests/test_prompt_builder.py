@@ -87,7 +87,7 @@ def test_prompt_injects_asset_and_type(builder: StockSnapshotPromptBuilder) -> N
     assert '"asset": "NVDA"' in prompt
     assert '"asset_type": "stock"' in prompt
     assert '"asset_type": "string"' not in prompt
-    assert 'such as "Company", "Equity", or an industry name' in prompt
+    assert 'Do not replace asset_type with "Company"' in prompt
 
 
 def test_prompt_without_context_has_fallback_profile_section(
@@ -117,7 +117,7 @@ def test_prompt_with_profile_context_includes_provider_fields(
     assert "profile_only" in prompt
 
 
-def test_prompt_with_peers_context_includes_competitors(
+def test_prompt_with_peers_context_includes_peer_relationship_instructions(
     builder: StockSnapshotPromptBuilder,
     profile_context: AssetProfileContext,
     peer_context: CompanyPeersContext,
@@ -129,18 +129,18 @@ def test_prompt_with_peers_context_includes_competitors(
         company_peers_context=peer_context,
     )
 
-    assert "2. COMPETITIVE CONTEXT" in prompt
+    assert "2. PEER CONTEXT" in prompt
     assert "Advanced Micro Devices" in prompt
     assert "AMD" in prompt
     assert "profile_with_peers" in prompt
     assert "Designs GPUs and processors." in prompt
     assert "Provider: yfinance" in prompt
     assert "Fetched at:" in prompt
-    assert "competition_area=Not available" not in prompt
+    assert "relationship_area=Not available" not in prompt
     assert "analytical OUTPUT" in " ".join(prompt.split())
-    assert 'Never copy a bare "Not available"' in prompt
-    assert "Enrichment explains and" in prompt
-    assert "Include each distinct supplied" in prompt
+    assert 'bare "Not available" is not' in prompt
+    assert "Enrichment qualifies explanations, not eligibility" in prompt
+    assert "EVERY distinct identifiable supplied peer" in prompt
 
 
 def test_prompt_with_fundamentals_context_includes_metrics(
@@ -194,15 +194,15 @@ def test_prompt_retains_sparse_or_nonoverlapping_provider_peer(
         peers=[CompanyPeer(ticker="FARM", name="Field Farm", profile=peer_profile)],
     )
     prompt = builder.build_prompt("NVDA", AssetType.STOCK, profile_context, peers)
-    assert "Field Farm (FARM)" in prompt
-    assert "Provider-reported peers (enrichment is optional)" in prompt
-    assert "it is not an eligibility test" in prompt
-    assert "When evidence does not establish an impact, say so" in prompt
-    assert "claiming the profile is missing" in prompt
+    assert "FARM | Field Farm" in prompt
+    assert "Provider-reported peers are a research universe" in prompt
+    assert "not eligibility" in prompt
+    assert "explain why impact cannot be assessed" in prompt
+    assert 'qualify absent overlap, not a "missing profile"' in prompt
     if with_profile:
         assert "Grows wheat" in prompt
     else:
-        assert "Peer profile unavailable. Retain this provider-reported peer" in prompt
+        assert "Retain peers without profiles" in prompt
 
 
 def test_prompt_data_scope_reflects_profile_peers_and_fundamentals(
@@ -234,7 +234,7 @@ def test_prompt_is_business_model_first(
         asset_profile_context=profile_context,
     )
 
-    assert "company profile and business model are the primary basis" in prompt
+    assert "company profile and business model are primary" in prompt
     assert "Financial fundamentals are quantitative supporting evidence" in prompt
 
 
@@ -422,12 +422,15 @@ def test_prompt_includes_risk_mechanism_guardrails(
 ) -> None:
     prompt = builder.build_prompt("NVDA", AssetType.STOCK)
 
-    assert "Avoid vague risks" in prompt
-    assert "Every structural risk must explain" in prompt
-    assert "company exposure or dependency" in prompt
-    assert "high debt is not automatically bad" in prompt
-    assert "P/E, P/S, EV/EBITDA, DCF" in prompt
-    assert "No buy/sell/hold" not in prompt
+    normalized = " ".join(prompt.split())
+    assert (
+        "STRUCTURAL PRESSURE -> COMPANY EXPOSURE -> TRANSMISSION MECHANISM"
+        in normalized
+    )
+    assert "exposed company business area" in normalized
+    assert "High debt is not automatically bad" in prompt
+    assert "P/E, P/S, EV/EBITDA" in prompt and "DCF" in prompt
+    assert "No buy/sell/hold recommendations" in prompt
 
 
 def test_prompt_does_not_contain_raw_vendor_json(

@@ -5,13 +5,15 @@ import logging
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 import evals.asset_snapshot.frozen as frozen_module
-from app.domain.schemas.asset_snapshot import CompetitivePeer, StockAssetSnapshot
+from app.domain.schemas.asset_snapshot import PeerRelationship, StockAssetSnapshot
 from app.llm.base import BaseChatModelClient
+from app.llm.prompts.company_peer_projection import PeerContextMode
 from evals.asset_snapshot.dataset import load_dataset
 from evals.asset_snapshot.frozen import build_frozen_execution
-from evals.asset_snapshot.graders import CompetitiveEvidenceGrader
+from evals.asset_snapshot.graders import PeerCoverageGrader
 from evals.asset_snapshot.models import JudgeEvidence, SemanticMetricResult
 from evals.asset_snapshot.reporting import write_report
 from evals.asset_snapshot.run import (
@@ -27,7 +29,7 @@ class FakeGenerationClient(BaseChatModelClient):
         self,
         asset: str,
         data_scope: str,
-        peers: list[CompetitivePeer] | None = None,
+        peers: list[PeerRelationship] | None = None,
     ) -> None:
         self.asset = asset
         self.data_scope = data_scope
@@ -39,10 +41,16 @@ class FakeGenerationClient(BaseChatModelClient):
     def model_name(self) -> str:
         return "fake-generation"
 
-    async def generate(self, message: str) -> str:
+    async def generate(
+        self,
+        message: str,
+        *,
+        response_schema: type[BaseModel] | None = None,
+    ) -> StockAssetSnapshot:
+        assert response_schema is StockAssetSnapshot
         self.calls += 1
         self.last_prompt = message
-        return json.dumps(
+        return StockAssetSnapshot.model_validate(
             {
                 "asset": self.asset,
                 "asset_type": "stock",
@@ -52,7 +60,7 @@ class FakeGenerationClient(BaseChatModelClient):
                     "business activity."
                 ),
                 "market_context": "It operates in the supplied industry context.",
-                "competitive_landscape": [peer.model_dump() for peer in self.peers],
+                "peer_landscape": [peer.model_dump() for peer in self.peers],
                 "structural_drivers": [
                     {
                         "title": "Durable demand",
@@ -68,7 +76,7 @@ class FakeGenerationClient(BaseChatModelClient):
                             "revenue growth."
                         ),
                         "materiality": "medium",
-                        "related_competitors": [],
+                        "related_entities": [],
                     }
                 ],
                 "data_scope": self.data_scope,
@@ -87,6 +95,26 @@ def test_cli_accepts_multiple_case_options() -> None:
     )
 
     assert args.case_ids == ["ma_payment_network_001", "jpm_bank_001"]
+
+
+@pytest.mark.asyncio
+async def test_cli_records_current_dataset_contract(monkeypatch, tmp_path) -> None:
+    client = FakeGenerationClient("CLOUDX", "profile_only")
+    monkeypatch.setattr("evals.asset_snapshot.run.OllamaChatClient", lambda: client)
+    args = build_parser().parse_args(
+        [
+            "--case",
+            "profile_only_saas_001",
+            "--deterministic-only",
+            "--output",
+            str(tmp_path),
+        ]
+    )
+    assert await run_from_args(args) == 0
+    report = json.loads(next(tmp_path.glob("*.json")).read_text())
+    assert report["dataset_version"] == "stock_snapshot_v1_peer_landscape_v2"
+    assert report["case_count"] == 1
+    assert client.calls == 1
 
 
 @pytest.mark.asyncio
@@ -185,11 +213,8 @@ async def test_frozen_enrichment_reaches_generation_and_saved_evidence(case_id) 
         if peer.profile:
             assert peer.profile.business_summary in client.last_prompt
     if case_id == "ma_sparse_peers_001":
-        assert (
-            "Peer profile unavailable. Retain this provider-reported"
-            in client.last_prompt
-        )
-    assert "why_competitor=Not available" not in client.last_prompt
+        assert "Retain peers without profiles" in client.last_prompt
+    assert "why_relevant=Not available" not in client.last_prompt
 
 
 @pytest.mark.asyncio
@@ -205,12 +230,15 @@ async def test_graph_accepts_and_preserves_qualified_provider_peers(case_id) -> 
     case = next(c for c in load_dataset() if c.id == case_id)
     assert case.peers_fixture is not None
     peers = [
-        CompetitivePeer(
+        PeerRelationship(
             ticker=peer.ticker,
             name=peer.name or peer.ticker,
-            competition_area="Provider-reported peer; direct overlap is unconfirmed.",
-            why_competitor="Provider-reported peer; direct competition is unconfirmed.",
-            why_it_matters="Specific impact is not established by supplied evidence.",
+            peer_type="unclear",
+            relationship_area="Provider-reported peer; direct overlap is unconfirmed.",
+            why_relevant=(
+                "Provider-reported peer; direct competition is unconfirmed and "
+                "specific impact is not established by supplied evidence."
+            ),
         )
         for peer in case.peers_fixture.peers
     ]
@@ -219,10 +247,10 @@ async def test_graph_accepts_and_preserves_qualified_provider_peers(case_id) -> 
 
     result = await execution.runner.run_result(case.request)
 
-    assert result.snapshot.competitive_landscape == peers
+    assert result.snapshot.peer_landscape == peers
     assert result.evidence.company_peers_context == case.peers_fixture
-    assert CompetitiveEvidenceGrader().grade(case, result.snapshot).passed
-    assert "Enrichment explains and" in client.last_prompt
+    assert PeerCoverageGrader().grade(case, result.snapshot).passed
+    assert "Enrichment qualifies explanations, not eligibility" in client.last_prompt
 
 
 @pytest.mark.asyncio
@@ -304,6 +332,9 @@ async def test_default_cli_exits_before_constructing_models(
         deterministic_only=False,
         validate_only=False,
         output=None,
+        peer_context="compact",
+        compare_prompts=False,
+        pairwise_only=False,
     )
 
     assert await run_from_args(args) == 0
@@ -349,7 +380,9 @@ async def test_report_writes_json_and_markdown(tmp_path: Path) -> None:
     assert json_path.exists()
     assert markdown_path.exists()
     assert "schema_validity" in json_path.read_text()
+    assert json.loads(json_path.read_text())["peer_context_mode"] == "compact"
     markdown = markdown_path.read_text()
+    assert "Peer context: `compact`" in markdown
     assert "Deterministic score: `8/8 (100.0%)`" in markdown
     assert "Semantic score: `1.00 / 2 (1/5 graded)`" in markdown
     assert "| `groundedness` | 1 / 2 | grounding_failure |" in markdown
@@ -358,3 +391,93 @@ async def test_report_writes_json_and_markdown(tmp_path: Path) -> None:
         "The company earns recurring revenue from its supplied business activity."
         in markdown
     )
+
+
+@pytest.mark.parametrize("mode", ["names_only", "compact", "full"])
+def test_cli_selects_peer_context(mode: str) -> None:
+    assert build_parser().parse_args(["--peer-context", mode]).peer_context == mode
+    assert build_parser().parse_args([]).peer_context == "compact"
+
+
+def test_cli_rejects_unknown_peer_context() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--peer-context", "invalid"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["names_only", "compact", "full"])
+async def test_eval_ablation_preserves_full_evidence_and_adds_no_inference(
+    mode: PeerContextMode,
+) -> None:
+    case = next(c for c in load_dataset() if c.id == "amzn_peer_profiles_001")
+    assert case.peers_fixture is not None
+    assert case.profile_fixture is not None
+    profile = case.peers_fixture.peers[0].profile
+    assert profile is not None
+    profile.business_summary = (
+        "Operates a retail marketplace. Sells merchant services. "
+        "Supports payments. Provides logistics. Offers advertising. "
+        + "Further canonical evidence must survive unchanged. "
+        * 40
+    )
+    original = case.model_dump_json()
+    client = FakeGenerationClient(case.request.asset, "profile_with_peers")
+    execution = build_frozen_execution(case, client, peer_context_mode=mode)
+
+    first = await execution.runner.run_result(case.request)
+    profile_calls = execution.profile_provider.calls
+    second = await execution.runner.run_result(case.request)
+
+    assert first.evidence.company_peers_context == case.peers_fixture
+    assert second.evidence.company_peers_context == first.evidence.company_peers_context
+    assert case.model_dump_json() == original
+    assert execution.profile_provider.calls == profile_calls
+    assert execution.peers_provider.calls == 1
+    assert client.calls == 2  # One snapshot generation per run, no summarization.
+    for peer in case.peers_fixture.peers:
+        assert peer.ticker in client.last_prompt
+    assert ("Operates a retail marketplace." in client.last_prompt) == (
+        mode != "names_only"
+    )
+    assert ("Offers advertising." in client.last_prompt) == (mode != "names_only")
+    assert ("Further canonical evidence" in client.last_prompt) == (mode == "full")
+
+    evaluator = StockSnapshotEvaluator(generation_client=client, peer_context_mode=mode)
+    report = await evaluator.run(
+        [case], dataset_version="test", deterministic_only=True
+    )
+    assert report.peer_context_mode == mode
+    assert client.calls == 3
+    assert ("Offers advertising." in client.last_prompt) == (mode != "names_only")
+    assert ("Further canonical evidence" in client.last_prompt) == (mode == "full")
+
+
+@pytest.mark.asyncio
+async def test_cli_passes_peer_context_to_generation_and_report(monkeypatch, tmp_path):
+    client = FakeGenerationClient("AMZN", "profile_with_peers")
+    monkeypatch.setattr("evals.asset_snapshot.run.OllamaChatClient", lambda: client)
+    args = build_parser().parse_args(
+        [
+            "--case",
+            "amzn_peer_profiles_001",
+            "--include-pending",
+            "--deterministic-only",
+            "--peer-context",
+            "names_only",
+            "--output",
+            str(tmp_path),
+        ]
+    )
+
+    assert await run_from_args(args) == 0
+
+    peer_section = client.last_prompt.split("2. PEER CONTEXT\n")[1].split(
+        "3. SUPPORTING FINANCIAL FUNDAMENTALS"
+    )[0]
+    assert "ETSY" in peer_section
+    assert "CASY" in peer_section
+    assert "Business:" not in peer_section
+    assert "Industry:" not in peer_section
+    report_path = next(tmp_path.glob("*.json"))
+    assert json.loads(report_path.read_text())["peer_context_mode"] == "names_only"
+    assert client.calls == 1

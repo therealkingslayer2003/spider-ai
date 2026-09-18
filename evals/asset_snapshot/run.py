@@ -2,10 +2,12 @@ import argparse
 import asyncio
 import logging
 from pathlib import Path
+from typing import get_args
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.llm.ollama_client import OllamaChatClient
+from app.llm.prompts.company_peer_projection import PeerContextMode
 from evals.asset_snapshot.config import get_eval_settings
 from evals.asset_snapshot.dataset import (
     DATASET_VERSION,
@@ -41,15 +43,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-pending", action="store_true")
     parser.add_argument("--deterministic-only", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument(
+        "--peer-context",
+        choices=get_args(PeerContextMode),
+        default="compact",
+        help="peer prompt representation for ablation (default: compact)",
+    )
     parser.add_argument("--output", type=Path)
     return parser
 
 
 async def run_from_args(args: argparse.Namespace) -> int:
     dataset_path = _dataset_path(args.dataset)
+    dataset_version = (
+        DATASET_VERSION
+        if dataset_path.resolve() == DEFAULT_DATASET_PATH.resolve()
+        else dataset_path.stem
+    )
     logger.info(
         "eval.cli.start dataset=%s case_ids=%s category=%s include_pending=%s "
-        "deterministic_only=%s validate_only=%s output=%s",
+        "deterministic_only=%s validate_only=%s output=%s peer_context=%s",
         dataset_path,
         args.case_ids,
         args.category,
@@ -57,6 +70,7 @@ async def run_from_args(args: argparse.Namespace) -> int:
         args.deterministic_only,
         args.validate_only,
         args.output,
+        args.peer_context,
     )
     cases = load_dataset(dataset_path)
     counts = dataset_status_counts(cases)
@@ -109,6 +123,7 @@ async def run_from_args(args: argparse.Namespace) -> int:
     eval_settings = get_eval_settings()
     generation_client = OllamaChatClient()
     semantic_graders = []
+    judge_client = None
     judge_model = "not_run"
     if not args.deterministic_only:
         configured_judge_model = (
@@ -134,10 +149,11 @@ async def run_from_args(args: argparse.Namespace) -> int:
     evaluator = StockSnapshotEvaluator(
         generation_client=generation_client,
         semantic_graders=semantic_graders,
+        peer_context_mode=args.peer_context,
     )
     report = await evaluator.run(
         selected,
-        dataset_version=dataset_path.stem,
+        dataset_version=dataset_version,
         deterministic_only=args.deterministic_only,
     )
     json_path, markdown_path = write_report(report, args.output)

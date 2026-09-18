@@ -22,26 +22,64 @@ class JudgeEvaluationError(RuntimeError):
     """Raised when the semantic judge cannot return a valid structured result."""
 
 
-_COMMON_JUDGE_RULES = """
-Judge only against the supplied request, normalized provider fixtures, explicit
-expectations, and rubric. Do not use current market knowledge, current news,
-stock prices, or facts not supplied here.
+PEER_RESEARCH_JUDGE_RULES = """
+Judge against the supplied request, normalized provider fixtures, expectations,
+and rubric. Provider evidence is the primary factual anchor and overrides
+contradictory memory. Stable model knowledge may supplement even present/compact
+profiles ONLY for high-confidence, widely established, structurally persistent,
+non-obscure company or industry facts. Long-established products/platforms,
+activities and relationships are acceptable secondary support, not provider facts.
+Do not require these claims to occur literally in fixtures. Explain whether disputed
+claims are provider-grounded, stable-knowledge-supported, or unsupported.
+Do not invent company-specific knowledge for fictional entities.
 
-Peer lists establish provider-reported peer relationships, not necessarily direct
-competition. Every distinct identifiable supplied peer should be acknowledged,
-regardless of enrichment availability. Nested peer
-profiles are factual evidence; competition_area, why_competitor and why_it_matters
-are generated analytical conclusions. Accept reasonable overlap and potential
-economic mechanisms inferred from target and candidate profiles, not unsupported
-facts or measured impacts. Do not require verbatim explanations in fixtures.
-For groundedness and company_specificity, penalize omitted provider-reported peers,
-unsupported claims of direct competition, and bare placeholder explanations.
-Do NOT penalize inclusion merely because a peer profile is missing or its business
-differs from the target. Accept an attributed provider peer with an explicit
-qualification that overlap or economic impact is unconfirmed. This is substantive
-uncertainty, not a placeholder. When profiles support meaningful overlap, require
-an evidence-based explanation rather than a blanket disclaimer. Empty landscapes
-are appropriate when no identifiable peers were supplied, not when enrichment fails.
+Model memory cannot supply numerical claims, current metrics, market shares,
+recent contracts, supplier/customer links, partnerships, regulatory actions, or
+latest product/news developments. Time-sensitive relationships require provider
+evidence. Reject uncertain/obscure facts asserted confidently and contradictions
+of supplied facts. General economics may interpret supported facts. Missing
+financial data is not negative evidence; metrics require business-model context,
+not automatic bullish/bearish or leverage conclusions. No trading/news/valuation.
+
+Every distinct identifiable supplied peer should be acknowledged exactly once.
+Peer membership is not proof of direct competition. peer_type, relationship_area,
+why_relevant are analytical outputs, not provider fields:
+- direct_competitor requires substantial offering AND demand/customer/revenue overlap.
+- indirect_competitor requires a different offering substituting for the same need,
+  spending, platform usage, transactions, advertising, or ecosystem participation.
+- comparable requires broad economic similarity without a supported competitive
+  mechanism; it is a legitimate outcome, not a failed competition explanation.
+- unclear is correct when neither supplied evidence nor permitted stable knowledge
+  supports reliable classification. Do not force type diversity or supplier,
+  customer, partner, or complementor types.
+
+Evaluate peer coverage, peer_type correctness, direct-competition overclaiming,
+indirect substitution justification, appropriate comparable/unclear classifications,
+specific relationship_area and a grounded why_relevant that combines the supported
+relationship with its target-focused causal economic significance. Both parts must
+be covered (or explicitly qualified); a bare high/medium/low rating is insufficient.
+Missing enrichment alone neither invalidates a peer nor
+prohibits reliable stable-knowledge classification. If support is insufficient,
+accurate uncertainty is substantive analysis, not a placeholder; do not force an
+economic mechanism. If support establishes overlap, blanket disclaimers are weak.
+Check consistency between peer_type and the explanation: comparable cannot excuse
+a supported competitive mechanism described in why_relevant.
+A shared sector alone is weaker than a specific, supported relationship area.
+Empty landscapes are appropriate only without identifiable supplied peers,
+not when enrichment fails. Do not invent additional peer identities.
+
+related_entities must identify supplied peers materially connected to the specific
+risk mechanism, not just copy the landscape. They need not be competitors.
+An empty related_entities list is valid when no supplied peer materially participates.
+Do not penalize it solely for being empty or require every risk to be competitive.
+Risks still require pressure -> company exposure -> transmission -> economic
+consequence. Mere membership in related_entities does not justify a relationship.
+""".strip()
+
+
+_COMMON_JUDGE_RULES = (
+    PEER_RESEARCH_JUDGE_RULES
+    + """
 
 Return only JSON, example:
 {
@@ -61,6 +99,7 @@ field_path. Do not paraphrase, change capitalization, or insert ellipses. Paths
 start at the snapshot root, for example summary, business_or_asset_profile,
 structural_drivers[0].explanation, or structural_risks[0].explanation.
 """.strip()
+)
 
 
 @dataclass(frozen=True)
@@ -126,6 +165,7 @@ class LLMJudgeGrader:
         output: StockAssetSnapshot,
     ) -> str:
         context = {
+            "entity_kind": case.metadata.entity_kind,
             "request": case.request.model_dump(mode="json"),
             "profile_fixture": case.profile_fixture.model_dump(mode="json")
             if case.profile_fixture
@@ -249,7 +289,8 @@ def default_semantic_graders(
                 "0 = materially wrong business category or economics. "
                 "1 = partially correct but generic or incomplete. "
                 "2 = correctly captures what the business does and its central "
-                "revenue/value mechanism from supplied context."
+                "revenue/value mechanism anchored in supplied context, with only "
+                "permitted stable knowledge as secondary support."
             ),
             failure_label="wrong_business_model",
             client=client,
@@ -259,7 +300,9 @@ def default_semantic_graders(
             rubric=(
                 "0 = risks are irrelevant, temporary/current-news driven, or generic. "
                 "1 = risks are relevant but weak or generic. "
-                "2 = risks are persistent, specific, and tied to this business."
+                "2 = risks are persistent, specific, and tied to this business; "
+                "related_entities materially participate in the stated mechanism, "
+                "rather than being copied from the peer list."
             ),
             failure_label="generic_risk",
             client=client,
@@ -281,11 +324,12 @@ def default_semantic_graders(
             rubric=(
                 "0 = material unsupported factual claims or contradictions. "
                 "1 = mostly grounded with weak extrapolation. "
-                "2 = factual statements align with supplied fixtures and inferences "
-                "are reasonable. Missing context must not be invented. Competitive "
-                "mechanisms must follow from supplied facts; peer-list membership "
-                "alone supports provider attribution, not direct competition. "
-                "Explicit uncertainty about missing overlap or impact is valid."
+                "2 = claims respect provider evidence, permitted stable knowledge "
+                "and conservative inference. Do not penalize reliable persistent "
+                "knowledge merely because compact fixtures omit it. Penalize "
+                "numerical/current/obscure inventions, contradictory claims, "
+                "speculative direct competition, unsupported indirect substitution "
+                "and unjustified related_entities. Explain the support basis."
             ),
             failure_label="grounding_failure",
             client=client,
@@ -296,10 +340,11 @@ def default_semantic_graders(
                 "0 = boilerplate reusable for unrelated companies. "
                 "1 = some company or industry specificity. "
                 "2 = strongly tied to the supplied business model, dependencies, "
-                "competitive context, and available financial signals. If candidate "
-                "profiles establish clear overlap, generic disclaimers do not "
-                "deserve full credit. With sparse evidence, provider attribution "
-                "and an accurate limitation are appropriate; dropping the peer is not."
+                "peer context, and available financial signals. Assess peer_type, "
+                "relationship_area and the combined why_relevant explanation: "
+                "specific supported overlap/substitution or accurate broader "
+                "comparability/uncertainty, not automatic competitor labels or "
+                "blanket disclaimers. Missing profiles do not justify omissions."
             ),
             failure_label="generic_risk",
             client=client,

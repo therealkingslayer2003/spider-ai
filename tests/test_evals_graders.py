@@ -2,18 +2,18 @@ import json
 
 import pytest
 
-from app.domain.schemas.asset_snapshot import CompetitivePeer, StockAssetSnapshot
+from app.domain.schemas.asset_snapshot import PeerRelationship, StockAssetSnapshot
 from app.llm.base import BaseChatModelClient
 from evals.asset_snapshot.dataset import load_dataset
 from evals.asset_snapshot.graders import (
-    CompetitiveEvidenceGrader,
     DataScopeGrader,
     ForbiddenClaimGrader,
+    PeerCoverageGrader,
     RequiredFieldGrader,
     SafetyGrader,
     SchemaValidityGrader,
-    UnsupportedCompetitorGrader,
     UnsupportedNumericClaimGrader,
+    UnsupportedPeerRelationshipGrader,
 )
 from evals.asset_snapshot.judge import JudgeEvaluationError, LLMJudgeGrader
 
@@ -32,7 +32,7 @@ def make_snapshot(
             "summary": "A structurally focused company overview.",
             "business_or_asset_profile": profile_text,
             "market_context": "The company operates in enterprise software.",
-            "competitive_landscape": [],
+            "peer_landscape": [],
             "structural_drivers": [
                 {
                     "title": "Retention",
@@ -45,7 +45,7 @@ def make_snapshot(
                     "title": "Churn",
                     "explanation": risk_text,
                     "materiality": "high",
-                    "related_competitors": [],
+                    "related_entities": [],
                 }
             ],
             "data_scope": data_scope,
@@ -74,25 +74,30 @@ def financial_case():
         ("profile_only_saas_001", [], False, True),
     ],
 )
-def test_competitive_evidence_requires_peer_acknowledgment_not_proven_competition(
+def test_peer_coverage_requires_peer_acknowledgment_not_proven_competition(
     case_id, tickers, placeholder, passed
 ):
     case = next(c for c in load_dataset() if c.id == case_id)
     snapshot = make_snapshot()
-    snapshot.competitive_landscape = [
-        CompetitivePeer(
+    snapshot.peer_landscape = [
+        PeerRelationship(
             ticker=ticker,
             name=ticker,
-            competition_area="Provider-reported peer; specific overlap is unconfirmed.",
-            why_competitor="Not available"
+            peer_type="unclear",
+            relationship_area=(
+                "Provider-reported peer; specific overlap is unconfirmed."
+            ),
+            why_relevant="Not available"
             if placeholder
-            else "Provider-reported peer; direct competition is unconfirmed.",
-            why_it_matters="Specific impact is not established by supplied evidence.",
+            else (
+                "Provider-reported peer; direct competition is unconfirmed and "
+                "specific impact is not established by supplied evidence."
+            ),
         )
         for ticker in tickers
     ]
 
-    result = CompetitiveEvidenceGrader().grade(case, snapshot)
+    result = PeerCoverageGrader().grade(case, snapshot)
     assert result.passed is passed
     assert bool(result.failure_labels) is not passed
 
@@ -107,7 +112,8 @@ def test_competitive_evidence_requires_peer_acknowledgment_not_proven_competitio
     ),
     [
         ("V", "Visa", "v", "Visa", True),
-        ("V", "Visa", None, "VISA", True),
+        ("V", "Visa", None, "VISA", False),
+        ("V", "Visa", "", "Visa", False),
         (None, "Visa, Inc.", None, "Visa Inc", True),
         ("V", None, "V", "V", True),
         ("V", "Visa", "OTHER", "Visa", False),
@@ -130,26 +136,29 @@ def test_peer_coverage_matches_identity_without_inspecting_profiles(
         peers=[CompanyPeer(ticker=supplied_ticker, name=supplied_name)],
     )
     snapshot = make_snapshot()
-    snapshot.competitive_landscape = [
-        CompetitivePeer(
+    snapshot.peer_landscape = [
+        PeerRelationship(
             ticker=generated_ticker,
             name=generated_name,
-            competition_area="Provider-reported peer; direct overlap unconfirmed.",
-            why_competitor="Included by the provider; no peer profile was supplied.",
-            why_it_matters="Specific impact cannot be assessed from supplied facts.",
+            peer_type="unclear",
+            relationship_area="Provider-reported peer; direct overlap unconfirmed.",
+            why_relevant=(
+                "Included by the provider; no peer profile was supplied, so "
+                "specific impact cannot be assessed from supplied facts."
+            ),
         )
     ]
-    assert CompetitiveEvidenceGrader().grade(case, snapshot).passed is passed
+    assert PeerCoverageGrader().grade(case, snapshot).passed is passed
 
 
 def test_missing_provider_peer_is_reported_by_identity():
     case = next(c for c in load_dataset() if c.id == "ma_sparse_peers_001")
-    result = CompetitiveEvidenceGrader().grade(case, make_snapshot())
+    result = PeerCoverageGrader().grade(case, make_snapshot())
     assert result.reason == "Missing provider-reported peers: ['AXP', 'V']"
 
 
-def test_competitive_evidence_grader_rejects_invalid_schema():
-    assert not CompetitiveEvidenceGrader().grade(financial_case(), {}).passed
+def test_peer_coverage_grader_rejects_invalid_schema():
+    assert not PeerCoverageGrader().grade(financial_case(), {}).passed
 
 
 def test_judge_distinguishes_peer_facts_from_generated_inferences():
@@ -161,10 +170,10 @@ def test_judge_distinguishes_peer_facts_from_generated_inferences():
     )
     prompt = grader._build_prompt(case, make_snapshot())
     assert "Every distinct identifiable supplied peer should be acknowledged" in prompt
-    assert "This is substantive" in prompt
+    assert "uncertainty is substantive analysis" in prompt
     assert "not when enrichment fails" in prompt
-    assert "unsupported claims of direct competition" in prompt
-    assert "Do not require verbatim explanations in fixtures" in prompt
+    assert "direct-competition overclaiming" in prompt
+    assert "Do not require these claims to occur literally in fixtures" in prompt
     assert "independent sellers" in prompt
 
 
@@ -233,25 +242,25 @@ def test_forbidden_claim_grader_normalizes_phrase() -> None:
     assert result.passed is False
 
 
-def test_unsupported_competitor_grader_rejects_invented_peer() -> None:
+def test_unsupported_peer_relationship_grader_rejects_invented_peer() -> None:
     case = next(
         case for case in load_dataset() if case.id == "novapay_peers_missing_001"
     )
     snapshot = make_snapshot(asset=case.request.asset, data_scope="profile_only")
-    snapshot.competitive_landscape = [
-        CompetitivePeer(
+    snapshot.peer_landscape = [
+        PeerRelationship(
             ticker="FAKE",
             name="Fake Peer",
-            competition_area="payments",
-            why_competitor="Competes",
-            why_it_matters="Pressures pricing",
+            peer_type="unclear",
+            relationship_area="payments",
+            why_relevant="Competes for the same workloads, pressuring pricing.",
         )
     ]
 
-    result = UnsupportedCompetitorGrader().grade(case, snapshot)
+    result = UnsupportedPeerRelationshipGrader().grade(case, snapshot)
 
     assert result.passed is False
-    assert "unsupported_competitor" in result.failure_labels
+    assert "unsupported_peer_relationship" in result.failure_labels
 
 
 class FakeJudgeClient(BaseChatModelClient):
@@ -259,7 +268,8 @@ class FakeJudgeClient(BaseChatModelClient):
         self.output = output
         self.prompts: list[str] = []
 
-    async def generate(self, message: str) -> str:
+    async def generate(self, message: str, *, response_schema=None) -> str:
+        assert response_schema is None
         self.prompts.append(message)
         return self.output
 
@@ -375,7 +385,7 @@ async def test_semantic_judge_caps_excess_valid_evidence() -> None:
 @pytest.mark.asyncio
 async def test_semantic_judge_accepts_literal_evidence_from_list_field() -> None:
     snapshot = make_snapshot()
-    snapshot.structural_risks[0].related_competitors = ["ALPHA", "BETA"]
+    snapshot.structural_risks[0].related_entities = ["ALPHA", "BETA"]
     grader = LLMJudgeGrader(
         metric="groundedness",
         rubric="0 bad, 1 partial, 2 grounded",
@@ -387,7 +397,7 @@ async def test_semantic_judge_accepts_literal_evidence_from_list_field() -> None
                     "reason": "The named competitor is present in the snapshot.",
                     "evidence": [
                         {
-                            "field_path": ("structural_risks[0].related_competitors"),
+                            "field_path": ("structural_risks[0].related_entities"),
                             "quote": "ALPHA",
                         }
                     ],
@@ -398,7 +408,7 @@ async def test_semantic_judge_accepts_literal_evidence_from_list_field() -> None
 
     result = await grader.grade(financial_case(), snapshot)
 
-    assert result.evidence[0].field_path == ("structural_risks[0].related_competitors")
+    assert result.evidence[0].field_path == ("structural_risks[0].related_entities")
     assert result.evidence[0].quote == "ALPHA"
 
 

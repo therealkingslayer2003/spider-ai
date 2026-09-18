@@ -2,6 +2,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from langchain_core.exceptions import OutputParserException
 
 from app.agents.asset_snapshot.router.graph import AssetSnapshotRouterGraph
 from app.agents.asset_snapshot.router.routing import route_asset_type
@@ -80,13 +81,15 @@ def llm_response(
             "summary": "GPU manufacturer.",
             "market_context": "Semiconductor sector.",
             "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-            "competitive_landscape": [
+            "peer_landscape": [
                 {
                     "ticker": "AMD",
                     "name": "Advanced Micro Devices",
-                    "competition_area": "AI accelerators",
-                    "why_competitor": "AMD competes in GPUs.",
-                    "why_it_matters": "It pressures pricing and share.",
+                    "peer_type": "direct_competitor",
+                    "relationship_area": "AI accelerators",
+                    "why_relevant": (
+                        "AMD competes in GPUs, pressuring pricing and share."
+                    ),
                 }
             ],
             "structural_drivers": [
@@ -101,7 +104,7 @@ def llm_response(
                     "title": "Supply chain concentration",
                     "explanation": "Foundry constraints can limit availability.",
                     "materiality": "high",
-                    "related_competitors": ["AMD"],
+                    "related_entities": ["AMD"],
                 }
             ],
             "data_scope": data_scope,
@@ -141,8 +144,8 @@ def mock_prompt_builder() -> MagicMock:
 @pytest.fixture
 def mock_llm() -> AsyncMock:
     llm = AsyncMock()
-    llm.generate.return_value = llm_response(
-        data_scope="profile_with_peers_and_financial_signals"
+    llm.generate.return_value = StockAssetSnapshot.model_validate_json(
+        llm_response(data_scope="profile_with_peers_and_financial_signals")
     )
     return llm
 
@@ -242,7 +245,7 @@ def test_router_state_does_not_expose_stock_intermediate_contexts() -> None:
     assert "asset_profile_context" not in state
     assert "company_peers_context" not in state
     assert "company_fundamentals_context" not in state
-    assert "raw_llm_output" not in state
+    assert "generation_prompt" not in state
 
 
 def test_router_module_contains_no_vendor_behavior() -> None:
@@ -292,8 +295,8 @@ async def test_stock_subgraph_no_profile_continues_with_model_fallback(
     mock_company_peers_tool.run.return_value = make_empty_peers()
     mock_fundamentals_tool.run.return_value = make_empty_fundamentals()
     mock_prompt_builder.data_scope.return_value = "model_static_knowledge_fallback"
-    mock_llm.generate.return_value = llm_response(
-        data_scope="model_static_knowledge_fallback"
+    mock_llm.generate.return_value = StockAssetSnapshot.model_validate_json(
+        llm_response(data_scope="model_static_knowledge_fallback")
     )
     subgraph = build_stock_subgraph(
         mock_profile_tool,
@@ -321,7 +324,9 @@ async def test_stock_subgraph_empty_peers_and_fundamentals_continue(
     mock_company_peers_tool.run.return_value = make_empty_peers()
     mock_fundamentals_tool.run.return_value = make_empty_fundamentals()
     mock_prompt_builder.data_scope.return_value = "profile_only"
-    mock_llm.generate.return_value = llm_response(data_scope="profile_only")
+    mock_llm.generate.return_value = StockAssetSnapshot.model_validate_json(
+        llm_response(data_scope="profile_only")
+    )
     subgraph = build_stock_subgraph(
         mock_profile_tool,
         mock_company_peers_tool,
@@ -336,14 +341,14 @@ async def test_stock_subgraph_empty_peers_and_fundamentals_continue(
 
 
 @pytest.mark.asyncio
-async def test_stock_subgraph_malformed_llm_json_records_controlled_error(
+async def test_stock_subgraph_exhausted_generation_records_controlled_error(
     mock_profile_tool: AsyncMock,
     mock_company_peers_tool: AsyncMock,
     mock_fundamentals_tool: AsyncMock,
     mock_prompt_builder: MagicMock,
     mock_llm: AsyncMock,
 ) -> None:
-    mock_llm.generate.return_value = "not valid json"
+    mock_llm.generate.side_effect = OutputParserException("Both attempts failed")
     subgraph = build_stock_subgraph(
         mock_profile_tool,
         mock_company_peers_tool,

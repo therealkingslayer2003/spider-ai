@@ -1,10 +1,10 @@
 from enum import Enum
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 
-class AssetType(str, Enum):  # noqa: UP042
+class AssetType(str, Enum):
     """Supported asset types."""
 
     STOCK = "stock"
@@ -27,51 +27,68 @@ class BaseAssetSnapshot(BaseModel):
 class StockAssetSnapshot(BaseAssetSnapshot):
     business_or_asset_profile: str
     market_context: str
-    competitive_landscape: list["CompetitivePeer"] = Field(
-        description="Provider-reported peers with qualified relationship explanations."
-    )
-
-
-class CompetitivePeer(BaseModel):
-    ticker: str | None = None
-    name: str
-    competition_area: str
-    why_competitor: str = Field(
+    peer_landscape: list["PeerRelationship"] = Field(
         description=(
-            "Supported competitive overlap, or provider peer attribution with an "
-            "explicit qualification when direct competition is unconfirmed."
+            "Every identifiable provider-reported peer, with an analytical "
+            "relationship classification and qualified economic relevance."
         )
     )
-    why_it_matters: str = Field(
-        description="Supported potential impact, or an explicit evidence limitation."
+
+
+class PeerRelationship(BaseModel):
+    ticker: str | None = Field(
+        default=None,
+        description="Preserve the supplied peer ticker; null only when unavailable.",
+    )
+    name: str
+    peer_type: Literal[
+        "direct_competitor", "indirect_competitor", "comparable", "unclear"
+    ] = Field(
+        description=(
+            "Analytical classification, not a provider assertion: direct for "
+            "substantial offering/demand overlap, indirect for substitution of "
+            "the same economic need, comparable for broad economic similarity "
+            "without proven competition, unclear when support is insufficient."
+        )
+    )
+    relationship_area: str = Field(
+        description="Specific economic overlap, broader comparability, or uncertainty."
+    )
+    why_relevant: str = Field(
+        description=(
+            "One explanation of the supported relationship AND its structural "
+            "economic significance for the target company. Use provider evidence "
+            "first and reliable stable knowledge second; distinguish competition "
+            "from comparability and explain the causal effect or evidence "
+            "limitation. Return explanatory prose, not a high/medium/low rating."
+        )
     )
 
+def normalize_materiality(value: object) -> object:
+    return value.strip().lower() if isinstance(value, str) else value
+
+Materiality = Annotated[
+    Literal["low", "medium", "high"],
+    BeforeValidator(normalize_materiality),
+]
 
 class StructuralDriver(BaseModel):
     title: str
     explanation: str
-    materiality: Literal["low", "medium", "high"]
-
-    @field_validator("materiality", mode="before")
-    @classmethod
-    def normalize_materiality(cls, value: object) -> object:
-        if isinstance(value, str):
-            return value.strip().lower()
-        return value
+    materiality: Materiality
 
 
 class StructuralRisk(BaseModel):
     title: str
     explanation: str
-    materiality: Literal["low", "medium", "high"]
-    related_competitors: list[str] = Field(default_factory=list)
-
-    @field_validator("materiality", mode="before")
-    @classmethod
-    def normalize_materiality(cls, value: object) -> object:
-        if isinstance(value, str):
-            return value.strip().lower()
-        return value
+    materiality: Materiality
+    related_entities: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Peer tickers or supplied names materially connected to this specific "
+            "risk mechanism, not every peer and not necessarily competitors."
+        ),
+    )
 
 
 class AssetSnapshotRequest(BaseModel):

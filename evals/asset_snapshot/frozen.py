@@ -16,6 +16,7 @@ from app.domain.schemas.company_fundamentals_context import (
 )
 from app.domain.schemas.company_peer_context import CompanyPeersContext
 from app.llm.base import BaseChatModelClient
+from app.llm.prompts.company_peer_projection import PeerContextMode
 from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 from evals.asset_snapshot.models import StockSnapshotEvalCase
 
@@ -148,6 +149,9 @@ class FrozenExecution:
 def build_frozen_execution(
     case: StockSnapshotEvalCase,
     llm_client: BaseChatModelClient,
+    *,
+    peer_context_mode: PeerContextMode = "compact",
+    prompt_builder: StockSnapshotPromptBuilder | None = None,
 ) -> FrozenExecution:
     logger.info(
         "eval.frozen.execution.build case_id=%s asset=%s profile_fixture=%s "
@@ -189,7 +193,8 @@ def build_frozen_execution(
         company_fundamentals_tool=CompanyFundamentalsTool(
             provider=fundamentals_provider
         ),
-        prompt_builder=StockSnapshotPromptBuilder(),
+        prompt_builder=prompt_builder
+        or StockSnapshotPromptBuilder(peer_context_mode=peer_context_mode),
         llm_client=llm_client,
     )
     router = AssetSnapshotRouterGraph(stock_snapshot_subgraph=stock_subgraph)

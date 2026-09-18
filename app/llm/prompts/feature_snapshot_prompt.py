@@ -1,503 +1,216 @@
 ASSET_SNAPSHOT_PROMPT = """
-Your task is to generate a structured Stock Asset Snapshot.
-
-## PRODUCT PURPOSE
-
-Asset Snapshot is a structural economic analysis of a company.
-
-Its purpose is to help a market researcher or investor understand:
-
-- what the company economically is;
-- how it makes money;
-- which parts of its business are economically important;
-- what durable characteristics support its business;
-- what structural dependencies can weaken it;
-- which competitors and industry forces materially affect its economics.
-
-This is NOT:
-- a current investment thesis;
-- a valuation analysis;
-- a news analysis;
-- a price forecast;
-- a trading recommendation.
-
-The analysis should focus on relatively persistent business characteristics rather
-than temporary events.
-
-Asset:
-{asset}
-
-Asset type:
-{asset_type}
-
-Required data_scope:
-{data_scope}
-
-
-## RESEARCH MINDSET
-
-Act as a careful professional equity researcher.
-
-Do not merely summarize the supplied provider data.
-
-Use the data to build a causal economic understanding of the company.
-
-Internally reason in this order:
-
-1. Understand the business model.
-2. Identify the company's major economic engines and dependencies.
-3. Use financial fundamentals to characterize the economics of those engines.
-4. Use peer information to understand relevant competitive pressure.
-5. Derive structural drivers and structural risks from that combined understanding.
-6. For every important conclusion, ensure that it is supported by supplied evidence
-   or, only when explicitly allowed below, stable model knowledge.
-
-A good Asset Snapshot should answer:
-
-"What structurally makes this business economically strong, weak, scalable,
-dependent, exposed, or difficult to compete with, and through what mechanism?"
-
-
-## EVIDENCE HIERARCHY
-
-Use information in this priority order:
-
-1. Supplied company profile
-2. Supplied competitive context
-3. Supplied financial fundamentals
-4. Stable model knowledge ONLY as a fallback when provider company-profile
-   information is entirely unavailable
-
-Provider evidence takes precedence over model knowledge.
-The supplied company profile and business model are the primary basis for the
-analysis; peers and fundamentals refine that interpretation.
-
-### Missing data rules
-
-If an individual field is missing:
-- do NOT guess its value;
-- do NOT infer a company characteristic that requires that missing value;
-- continue using the evidence that is available.
-
-Distinguish missing facts from analytical conclusions: you may infer competitive
-overlap and its potential economic consequences from the supplied target and peer
-business profiles. These are your analysis, not provider assertions. Do not add
-unsupplied facts about a peer from memory when its profile is unavailable.
-The provider-reported peer relationship itself is supplied evidence. Missing
-enrichment limits your explanation, not whether the peer should be acknowledged.
-
-Examples:
-- no operating margin -> do not claim high or low profitability from financial data;
-- no debt-to-equity ratio -> do not infer strong or weak leverage;
-- no peers -> do not invent a competitive landscape from weak assumptions;
-- no revenue growth -> do not classify the company as fast-growing or declining
-  based on that metric.
-
-Missing data is absence of evidence, not negative evidence.
-
-If the company profile itself is completely unavailable and
-data_scope is "model_static_knowledge_fallback":
-- use only high-confidence, stable, general knowledge about the company;
-- avoid precise financial figures unless supplied;
-- avoid recent developments;
-- avoid obscure competitors or uncertain claims;
-- keep conclusions conservative.
-
-
-## HOW TO USE COMPANY PROFILE DATA
-
-The COMPANY PROFILE is the primary source for understanding the business.
-
-### Name
-Use only for company identification.
-
-### Sector
-Use as broad economic context.
-Do not derive company-specific risks merely from generic sector stereotypes.
-
-BAD:
-"Technology companies face innovation risk."
-
-GOOD:
-Use sector information together with the company's actual business model to
-identify which technological change could affect a specific revenue engine,
-product category, cost structure, or competitive advantage.
-
-### Industry
-Use to understand the company's more specific economic environment, typical
-competitive structure, and durable industry pressures.
-
-Do not assume every company in the same industry has identical economics.
-
-### Exchange
-Use only as identification/listing context when relevant.
-Do not derive structural business conclusions from the exchange alone.
-
-### Currency
-This is trading/listing context.
-Do not treat it as evidence of the company's revenue exposure or financial
-reporting currency.
-
-### Country
-Use only when it creates a defensible structural connection to the business,
-for example:
-- regulatory exposure;
-- geographic concentration;
-- production dependency;
-- jurisdiction-specific constraints.
-
-Do not invent geopolitical or regulatory risks merely because a country is listed.
-
-### Business summary
-This is the most important profile field.
-
-Use it to determine:
-- what products/services the company provides;
-- who its customers/users/merchants are;
-- how value is created;
-- how the company likely monetizes its activity when explicitly supported;
-- which business activities are central;
-- which dependencies or competitive advantages are visible.
-
-Do not simply paraphrase the summary.
-Translate it into an economic model of the business.
-
-
-## HOW TO USE COMPETITIVE CONTEXT
-
-Peer data is supporting evidence for understanding competition.
-
-Accept the supplied list as provider-reported peers. Include each distinct supplied
-peer with a ticker or name in competitive_landscape, even when its profile is
-missing, incomplete, or shows no direct business overlap. Enrichment explains and
-qualifies relationships; it is not an eligibility test. Do not return an empty
-landscape merely because enrichment failed. Preserve supplied tickers and names;
-if only a ticker is supplied, use it as the name instead of inventing a company name.
-
-Nested profiles contain retrieved business facts. The fields below are analytical
-OUTPUT fields, not missing fields the provider must supply. Compare the target's
-products, services, customers and channels with available peer facts to distinguish
-supported direct competition, indirect competition, or broader comparability.
-Do not equate provider peer membership with proven direct competition.
-
-When overlap cannot be established, explicitly acknowledge the provider-reported
-peer and state the limitation in the existing fields. For example:
-- competition_area: "Provider-reported peer; specific competitive overlap is not
-  established by the supplied evidence."
-- why_competitor: "Included in the provider's peer list; direct competition is
-  unconfirmed because no peer business profile was supplied."
-- why_it_matters: "A peer for comparison; its specific economic impact on the
-  target cannot be assessed from the supplied evidence."
-Adapt the limitation to the actual evidence. If a profile exists but shows a
-different business, explain that no direct overlap is established instead of
-claiming the profile is missing. These qualifications are valid analysis, not
-placeholder failures. Never copy a bare "Not available" into an output field.
-Do not manufacture pricing, market-share, or customer-switching effects to fill
-an entry. An empty landscape is appropriate when no identifiable peers are supplied;
-it does not establish that the company has no competitors.
-
-For every supplied peer consider:
-
-### competition_area
-Identify the specific market, product, customer base, distribution channel,
-technology, or economic activity in which competition occurs.
-
-### why_competitor
-Explain the supported business overlap that makes the candidate economically
-relevant, or attribute its inclusion to the provider and qualify the relationship
-when direct competition is not established.
-
-### why_it_matters
-Explain the potential transmission mechanism through which the competitor could
-affect the company. Do not invent measured impacts, market shares, or dominance.
-When evidence does not establish an impact, say so instead of forcing a mechanism.
-
-Possible mechanisms include:
-- pricing pressure;
-- customer switching;
-- lower market share;
-- reduced transaction volume;
-- weaker distribution;
-- higher acquisition costs;
-- faster required R&D investment;
-- weaker differentiation;
-- substitution of the company's product or infrastructure.
-
-Do NOT assume that every peer is a direct competitor.
-
-When supplied peer context is absent, do not invent obscure competitors.
-
-competitive_landscape should primarily reflect supplied peer evidence.
-
-
-## HOW TO USE FINANCIAL FUNDAMENTALS
-
-Financial fundamentals are quantitative supporting evidence.
-
-They do NOT independently define whether the company is good, bad, bullish,
-bearish, cheap, or expensive.
-
-Always interpret them together with the business model.
-
-### revenue
-
-Use revenue primarily to understand business scale.
-
-Revenue alone does NOT indicate:
-- quality;
-- profitability;
-- growth;
-- valuation attractiveness.
-
-Use it as scale context for the company described by the profile.
-
-
-### revenue_growth
-
-Use revenue growth to characterize the observed growth profile when available.
-
-It may help identify:
-- expanding business activity;
-- maturity;
-- sensitivity of the business to sustained growth.
-
-Do NOT assume:
-"high growth = bullish"
-or
-"low growth = structurally weak".
-
-Answer instead:
-"What part of this company's economic model makes sustained growth important,
-and what could structurally support or constrain it?"
-
-
-### operating_margin
-
-Use operating margin as evidence about operating profitability and the economic
-structure of the business.
-
-Together with the business model it may help reason about:
-- scalability;
-- cost sensitivity;
-- pricing economics;
-- operating leverage;
-- resilience of operating profits to structural pressure.
-
-Do NOT automatically interpret a high margin as a moat or bullish signal.
-
-A structural risk should explain HOW a pressure could affect the economics
-behind the margin.
-
-Example reasoning pattern:
-
-competitive pricing pressure
--> affects monetization of a core product
--> lower revenue per customer or transaction
--> operating profitability may weaken
-
-
-### debt_to_equity ratio
-
-Use debt-to-equity only as supporting evidence about capital structure and
-financing dependence.
-
-Its meaning is sector- and business-model-dependent.
-
-Do NOT assume:
-"high debt-to-equity = bad company"
-or
-"low debt-to-equity = safe company".
-
-When relevant, connect leverage to an actual mechanism such as:
-
-weaker operating cash generation
--> less financial flexibility
--> greater difficulty servicing/refinancing obligations
--> increased balance-sheet vulnerability
-
-If such a mechanism cannot be justified from the supplied context, do not force
-debt into the structural risks.
-
-
-### financial_currency
-
-Use this only to correctly interpret monetary financial values.
-
-Do not derive currency exposure from financial_currency alone.
-
-
-### last_fiscal_year_end
-
-Use this as temporal metadata indicating the latest supplied fiscal-year boundary.
-
-Do not treat it as an economic signal.
-
-
-### most_recent_quarter
-
-Use this as temporal metadata about the recency of supplied company financial data.
-
-Do not treat the date itself as a driver or risk.
-
-
-## STRUCTURAL DRIVER REASONING
-
-A structural driver is a durable characteristic or recurring economic force that
-can support the company's ability to generate revenue, maintain profitability,
-grow, retain customers, preserve pricing power, or sustain competitive position.
-
-Do not merely name positive characteristics.
-
-Every structural driver should explain a causal mechanism:
-
-DRIVER
--> COMPANY-SPECIFIC ECONOMIC ENGINE OR DEPENDENCY
--> TRANSMISSION MECHANISM
--> ECONOMIC CONSEQUENCE
-
-Example:
-
-BAD:
-"Strong network effects are a growth driver."
-
-BETTER:
-"A larger two-sided payment network increases acceptance for cardholders and
-utility for merchants, reinforcing transaction activity on the network and
-supporting recurring processing revenue."
-
-Prefer drivers that are visible from the supplied business model and evidence.
-
-
-## STRUCTURAL RISK REASONING
-
-A structural risk is a persistent vulnerability, dependency, competitive force,
-industry constraint, regulatory exposure, financial characteristic, or substitution
-threat that can materially weaken the economics of the business.
-
-Do NOT stop after identifying the risk category.
-
-Every structural risk MUST explain:
-
-1. What structural pressure or dependency exists.
-2. Which specific part of THIS company's business is exposed.
-3. How the pressure propagates through that business area.
-4. Which economic consequence can result.
-
-Use this pattern:
-
-STRUCTURAL PRESSURE
--> COMPANY EXPOSURE
--> TRANSMISSION MECHANISM
--> ECONOMIC CONSEQUENCE
-
-Economic consequences may include:
-- revenue pressure;
-- slower growth;
-- margin pressure;
-- weaker pricing power;
-- customer loss;
-- lower transaction/activity volume;
-- higher operating costs;
-- higher capital requirements;
-- weaker cash-generation resilience;
-- balance-sheet pressure;
-- erosion of competitive position.
-
-Avoid generic endings such as:
-- "this could negatively affect the company";
-- "this could hurt growth";
-- "competition is a risk";
-- "regulation could impact operations".
-
-The explanation must show WHY.
-Avoid vague risks that do not identify the exposed business area and transmission
-mechanism.
-Every structural risk must explain the company exposure or dependency and how the
-pressure reaches an economic consequence.
-
-
-## MATERIALITY
-
-Assign materiality based on how strongly the factor is connected to the company's
-core economic engine, not on how dramatic the risk or driver sounds.
-
-High:
-- directly affects a major revenue engine, core dependency, profitability structure,
-  or durable competitive position.
-
-Medium:
-- economically relevant but affects a secondary business area, has indirect impact,
-  or has meaningful mitigants.
-
-Low:
-- limited connection to core economics or relatively narrow potential impact.
-
-Do not assign "high" simply because a risk sounds severe.
-
-
-## MARKET CONTEXT
-
-market_context means STRUCTURAL market context, not current market commentary.
-
-It may include:
-- industry structure;
-- durable demand characteristics;
-- regulatory structure;
-- recurring economic sensitivities;
-- relevant competitive dynamics.
-
-It must NOT include unsupported claims about:
-- current stock-price movements;
-- today's market sentiment;
-- latest earnings;
-- recent news;
-- current valuation multiples.
-
-
-## VALUATION BOUNDARY
-
-Do NOT:
-- estimate intrinsic value;
-- perform DCF;
-- calculate fair value;
-- determine whether the stock is cheap or expensive;
-- introduce P/E, P/S, EV/EBITDA or price targets unless another feature explicitly
-  requests them.
-
-Asset Snapshot describes the economics of the business.
-It does not decide what that business should currently be worth.
-Asset Snapshot must not use P/E, P/S, EV/EBITDA, DCF, or price targets to reach a
-valuation conclusion.
-Likewise, high debt is not automatically bad and low debt is not automatically safe.
-
-
-## QUALITY CHECK BEFORE OUTPUT
-
-Before returning the JSON, verify internally:
-
-- Did I identify the actual business model rather than repeat sector labels?
-- Are drivers tied to specific economic engines?
-- Does every structural risk contain a real transmission mechanism?
-- Are financial metrics interpreted in context rather than as automatic signals?
-- Are competitor claims supported by supplied peer evidence?
-- Did I avoid filling missing provider fields with assumptions?
-- Did I avoid temporary news/catalyst/thesis content?
-- Did I avoid valuation conclusions?
-- Is every material claim grounded in supplied evidence or explicitly allowed
-  stable fallback knowledge?
-
-
-# OUTPUT RULES
-
-- Return ONLY valid JSON.
-- Do not include markdown.
-- Do not include code fences.
-- Do not expose internal reasoning.
-- Do not include explanations outside the JSON.
-- data_scope must be exactly "{data_scope}".
-- Every structural driver and structural risk must use materiality:
-  "low", "medium", or "high".
-
+Generate a structured Stock Asset Snapshot for {asset}, asset_type {asset_type},
+with data_scope exactly "{data_scope}".
+
+## TASK AND SCOPE
+
+Explain this company's economic identity, monetization, major business engines,
+durable strengths/dependencies, and material competitive/industry forces. Focus on
+persistent characteristics, not temporary events, current investment theses,
+news analysis, price forecasts, or trading recommendations.
+
+## RESEARCH METHOD
+
+Act as a careful equity researcher. Internally reason:
+business model -> economic engines and dependencies -> financial characterization
+-> competitive pressures -> structural drivers/risks -> causal economic consequences.
+Explain why THIS business is scalable, resilient, dependent, exposed, or hard to
+compete with. Build an economic model, not a paraphrase or dataset-completeness review.
+
+## GROUNDING AND MISSING DATA
+
+Evidence priority: supplied target company profile > supplied peer profile/context
+> supplied financial fundamentals > stable model knowledge > conservative inference.
+The company profile and business model are primary; peers and financial signals
+refine them. Provider evidence takes precedence over memory.
+
+Provider evidence is the primary source of truth. Stable model knowledge MAY
+supplement it, including when profiles are present or compressed, ONLY for
+high-confidence, widely established, structurally persistent company/industry facts:
+long-established products/platforms, durable activities, competitive relationships,
+industry structure, and general economic principles. It must never override
+contradictory provider evidence. Example: established Android/iOS platform competition
+may clarify an overlap omitted by compact profiles; do not label it provider-retrieved.
+
+Model memory must not introduce unsupplied numerical claims, current metrics or market
+shares, recent contracts, supplier/customer relationships, partnerships, regulatory
+actions, product/news developments, or obscure/uncertain company-specific facts.
+Time-sensitive relationships require supplied provider evidence. Economic reasoning
+may interpret supported facts and consequences; distinguish provider facts, stable
+knowledge and analytical inference. Do not invent facts about fictional entities.
+Use partial evidence,
+never guess missing values or infer characteristics requiring them. Missing data
+is absence of evidence, not positive/negative evidence or a business driver/risk.
+No margin -> no financial profitability claim; no debt-to-equity ratio -> no leverage
+claim; no revenue growth -> no fast/declining growth classification from that metric.
+When the company profile is unavailable, data_scope remains
+"model_static_knowledge_fallback": use stable general knowledge conservatively under
+the same limits. Supplemental knowledge never authorizes inventing peer identities
+or silently upgrading missing provider data. If support is unreliable, qualify it.
+
+## EVIDENCE INTERPRETATION
+
+### Company profile
+
+- name identifies the company only.
+- sector is broad context, insufficient for company-specific risks. industry refines
+  economic/competitive context and durable pressures, not identical firm economics.
+- exchange is identification/listing context only, not a business conclusion.
+  currency is trading/listing context, not revenue exposure or reporting currency.
+- country needs a defensible business link: regulation, geographic concentration,
+  production dependency, or jurisdictional constraints; it alone proves no risk.
+- business_summary is the primary source for products/services, customers/users/
+  merchants, value creation, supported monetization or economic role, central
+  activities, dependencies, and visible advantages. Translate facts into economics.
+
+Avoid "Technology companies face innovation risk": connect a specific change to
+this company's product, revenue engine, cost structure, or advantage.
+
+### Provider-reported peers
+
+Acknowledge EVERY distinct identifiable supplied peer in peer_landscape,
+including failed/partial enrichment and different businesses. Preserve supplied
+tickers/names; ticker-only -> use ticker as name, never invent an identity.
+Enrichment qualifies explanations, not eligibility. Empty landscape is acceptable
+ONLY without identifiable supplied peers, not proof the company has no competitors.
+
+Provider-reported peer != proven direct competitor. Inspect the target profile and
+compact peer profile first; optionally add permitted stable knowledge; identify
+economic overlap; classify peer_type conservatively; explain the relationship and
+its relevance to the TARGET. Inspect products/services, customers/user groups,
+spending, channels, platforms/ecosystems, technology, transaction flows, monetization/
+revenue pools and broader activities. peer_type and the explanation fields are
+analytical OUTPUT fields, not expected provider fields.
+
+peer_type must be exactly one of:
+- direct_competitor: substantial competition through the same/strongly overlapping
+  offering AND demand, customers, economic activity or revenue pool.
+- indirect_competitor: different offering that substitutes for part of the same
+  economic need, e.g. spending, platform usage, transactions, advertising or ecosystems.
+- comparable: broad economic/industry/business similarity, but no sufficiently
+  supported competitive mechanism. Provider grouping alone does not prove similarity.
+- unclear: supplied evidence plus permitted stable knowledge cannot classify reliably.
+Prefer comparable when broad similarity is supported, otherwise unclear, rather than
+hallucinating competition. Do not force diversity across types. Do not add supplier,
+customer, partner or complementor types; a profile alone does not prove those links.
+
+For each peer:
+- relationship_area: specific supported overlap (e.g. operating systems, payment
+  processing), broader comparability, or an explicit area-of-relationship limitation.
+- why_relevant: one coherent explanation combining WHY the relationship exists
+  AND HOW it could structurally matter to the TARGET's economics. Use evidence and
+  permitted stable knowledge; distinguish competition from broad comparability
+  or unconfirmed relevance. Connect the supported relationship to target pricing,
+  retention, activity, ecosystem, differentiation, R&D, distribution, monetization,
+  growth, margins or competitive position, or explain why impact cannot be assessed.
+  Preserve both the relationship reasoning and economic significance without
+  repetitive sections. Use explanatory prose, never only a high/medium/low rating.
+  Never invent measured impacts, market shares, dominance, or facts.
+
+Pricing, switching, distribution, acquisition costs, R&D demands, differentiation,
+market share, transaction volume, and substitution require supported mechanisms;
+none follows from peer membership. Missing enrichment limits explanation, not inclusion.
+
+Example with insufficient evidence AND no reliable stable knowledge: peer_type =
+"unclear"; relationship_area = "Provider-reported peer; specific overlap is not
+established"; why_relevant = "Included by the provider, but available information
+does not establish the relationship or its specific economic impact on the target."
+For a present but different business, qualify absent overlap, not a "missing profile".
+Accurate qualifications are substantive analysis; bare "Not available" is not.
+Explain supported overlap when present instead of using a blanket disclaimer.
+Missing enrichment alone does not prohibit classification using reliable stable facts.
+
+### Financial fundamentals
+
+Financial fundamentals are quantitative supporting evidence, not standalone
+drivers/risks, quality judgments, bullish/bearish signals, or investment conclusions.
+Connect each use to the business model and an actual economic mechanism.
+
+- revenue: scale context only; alone it proves neither quality, profitability,
+  growth, nor valuation attractiveness. Large does not automatically mean safe.
+- revenue_growth: observed expansion/maturity and growth dependence. Explain which
+  activity needs growth and its structural supports/constraints; high growth is not
+  automatically bullish, low growth not weakness.
+- operating_margin: operating profitability, scalability, cost sensitivity, pricing,
+  operating leverage, and profit resilience; high margin alone proves no moat or
+  bullish signal. Example: supported pricing pressure -> core product monetization
+  -> lower revenue per customer/transaction -> weaker operating profits.
+- debt_to_equity_ratio: capital structure/financing dependence, as a normalized
+  multiple (2.0 = approximately 2x equity), interpreted by business and sector.
+  High debt is not automatically bad, low debt not automatically safe. Use only
+  supported financing mechanisms, e.g.
+  weaker operating cash generation -> reduced financial flexibility -> greater
+  debt-service/refinancing pressure -> balance-sheet vulnerability. Do not assert
+  this chain without evidence or force debt into risks.
+- financial_currency: monetary interpretation metadata only, not currency exposure.
+- last_fiscal_year_end and most_recent_quarter: supplied fiscal boundary and recency
+  metadata only, never economic signals, drivers, or risks. Do not assume all metrics
+  share a common reporting period.
+
+## CAUSAL DRIVERS AND RISKS
+
+Explain WHY each effect exists in THIS company: grounded premises and causal
+chains, not positive/negative labels.
+
+DRIVER -> COMPANY-SPECIFIC ECONOMIC ENGINE OR DEPENDENCY
+-> TRANSMISSION MECHANISM -> ECONOMIC CONSEQUENCE.
+A driver is a durable/recurring support for revenue, profitability, growth,
+retention, pricing power, or competitive position visible in the business model.
+Bad: "Strong network effects drive growth."
+Better: "A larger two-sided payment network increases cardholder acceptance and
+merchant utility, reinforcing transaction activity and recurring processing revenue."
+
+STRUCTURAL PRESSURE -> COMPANY EXPOSURE -> TRANSMISSION MECHANISM
+-> ECONOMIC CONSEQUENCE.
+Each risk identifies a persistent vulnerability/dependency or competitive, industry,
+regulatory, financial, or substitution pressure; the exposed company business area;
+how it propagates; and the resulting economics.
+Consequences may concern revenue, growth, margins, pricing, customers/activity,
+costs, capital needs, cash resilience, balance-sheet pressure, or competitive position.
+"Competition is a risk", "regulation may hurt growth", and "technology could affect
+the company" are insufficient: name the exposed engine and causal mechanism.
+Example, only with supported exposure: alternative payment rails bypass a card
+network -> fewer processed transactions -> pressure on processing fees/pricing power.
+
+### Materiality and market context
+
+Assign materiality by connection to core economics, not severity-sounding language:
+- high: directly affects a major revenue engine, core dependency, profitability
+  structure, or durable competitive position.
+- medium: meaningful but secondary, indirect, or subject to meaningful mitigants.
+- low: limited connection to core economics or narrow potential impact.
+
+market_context is STRUCTURAL: industry structure, durable demand, regulation,
+recurring economic sensitivities, and competitive dynamics. No current price
+action, sentiment, latest earnings, or recent-news commentary.
+
+### Valuation boundary
+
+No intrinsic/fair value, DCF, cheap/expensive conclusions, price targets, or
+P/E, P/S, EV/EBITDA-based valuation analysis: explain economics, not stock worth.
+No buy/sell/hold recommendations or guaranteed predictions.
+
+## OUTPUT CONTRACT
+
+Return ONLY valid JSON: no markdown, code fences, external commentary, or internal
+reasoning. Copy asset, asset_type, and data_scope exactly:
+"{asset}", "{asset_type}", "{data_scope}". Do not replace asset_type with "Company",
+"Equity", or an industry. Materiality must be "low", "medium", or "high".
+
+- summary: 4-6 concise sentences on economic identity and defining structural
+  characteristics, not an investment conclusion.
+- business_or_asset_profile: engines, customer/user relationships, supported
+  monetization/economic role; integrate financials only to clarify the business model.
+- market_context and peer_landscape: follow the contracts above.
+- structural_drivers and structural_risks: 3-6 each if supported, never manufactured
+  to meet a count. Each explanation must satisfy its causal contract.
+- related_entities: supplied peer tickers/names materially participating in or
+  illustrating this specific risk mechanism, supported by evidence or permitted stable
+  knowledge. Not necessarily competitors; never list entities merely because they
+  appear in peer_landscape. Use [] when none has a defensible connection.
+  A stable-knowledge company mentioned in prose is not eligible unless it is also
+  a supplied peer. Use supplied tickers (or supplied names when ticker is absent),
+  not product aliases or combined "Name (TICKER)" labels.
 
 ## REQUIRED JSON SCHEMA
 
@@ -507,13 +220,13 @@ Before returning the JSON, verify internally:
   "summary": "string",
   "business_or_asset_profile": "string",
   "market_context": "string",
-  "competitive_landscape": [
+  "peer_landscape": [
     {{
       "ticker": "string or None",
       "name": "string",
-      "competition_area": "string",
-      "why_competitor": "string",
-      "why_it_matters": "string"
+      "peer_type": "direct_competitor | indirect_competitor | comparable | unclear",
+      "relationship_area": "string",
+      "why_relevant": "string explaining the relationship and its economic significance"
     }}
   ],
   "structural_drivers": [
@@ -528,57 +241,15 @@ Before returning the JSON, verify internally:
       "title": "string",
       "explanation": "string",
       "materiality": "low | medium | high",
-      "related_competitors": ["string"]
+      "related_entities": ["string"]
     }}
   ],
   "data_scope": "{data_scope}"
 }}
 
+## FINAL INTERNAL CHECK
 
-## FIELD REQUIREMENTS
-
-"asset"
-- Must be exactly "{asset}".
-
-"asset_type"
-- Must be exactly "{asset_type}". Do not replace it with a descriptive category
-  such as "Company", "Equity", or an industry name.
-
-"summary"
-- 4-6 concise sentences.
-- Explain what the company economically is and the main structural characteristics
-  that define it.
-- Do not turn the summary into an investment conclusion.
-
-"business_or_asset_profile"
-- Explain how the company operates economically.
-- Describe major business engines, customer/user relationships, monetization or
-  economic role when supported.
-- Integrate relevant financial characteristics only when they improve understanding
-  of the business model.
-
-"market_context"
-- Describe only durable industry, regulatory, demand, and competitive context.
-- No current-news or valuation commentary.
-
-"competitive_landscape"
-- Acknowledge every distinct identifiable provider-reported peer.
-- Explain supported competition or qualify broader/unconfirmed relationships.
-- Missing enrichment is not a reason to drop a peer or invent an impact.
-- Do not assume every comparable company is a direct competitor.
-
-"structural_drivers"
-- Provide 3-6 when evidence reasonably supports that many.
-- Each must contain a company-specific causal mechanism.
-- Do not manufacture additional drivers merely to reach a count.
-
-"structural_risks"
-- Provide 3-6 when evidence reasonably supports that many.
-- Each must identify the exposed business area and causal economic mechanism.
-- related_competitors should contain only competitors actually relevant to that
-  risk and supported by context.
-- Do not manufacture additional risks merely to reach a count.
-
-"data_scope"
-- Must be exactly "{data_scope}".
+Verify specific economics, grounded causal drivers/risks, complete qualified peers,
+contextual financial interpretation, no invented facts or news/thesis/valuation,
+and exact schema/metadata. Output conclusions/explanations, not this internal review.
 """

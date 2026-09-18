@@ -420,7 +420,11 @@ async def test_fmp_profile_response_maps_to_asset_profile_context() -> None:
 @pytest.mark.asyncio
 async def test_fmp_peers_response_maps_to_company_peers_context() -> None:
     client = FakeAsyncClient(
-        {"/stock-peers?symbol=AAPL": FakeResponse([{"peersList": ["MSFT"]}])}
+        {
+            "/stock-peers?symbol=AAPL": FakeResponse(
+                [{"symbol": "AAPL", "peersList": ["MSFT", "GOOGL"]}]
+            )
+        }
     )
     provider = FmpProvider(enabled=True, api_key="key", client=client)
     profile = make_asset_profile()
@@ -428,7 +432,10 @@ async def test_fmp_peers_response_maps_to_company_peers_context() -> None:
     context = await provider.get_company_peers(asset_profile=profile)
 
     assert context.provider == "fmp"
-    assert context.peers[0].ticker == "MSFT"
+    assert [peer.model_dump(exclude_none=True) for peer in context.peers] == [
+        {"ticker": "MSFT", "provider": "fmp"},
+        {"ticker": "GOOGL", "provider": "fmp"},
+    ]
 
 
 @pytest.mark.asyncio

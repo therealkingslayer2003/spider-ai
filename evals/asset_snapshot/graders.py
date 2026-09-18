@@ -4,7 +4,7 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
-from app.domain.schemas.asset_snapshot import CompetitivePeer, StockAssetSnapshot
+from app.domain.schemas.asset_snapshot import PeerRelationship, StockAssetSnapshot
 from app.domain.schemas.company_peer_context import CompanyPeer
 from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 from evals.asset_snapshot.models import EvalMetricResult, StockSnapshotEvalCase
@@ -26,7 +26,7 @@ def _snapshot_text(snapshot: StockAssetSnapshot) -> str:
         snapshot.business_or_asset_profile,
         snapshot.market_context,
     ]
-    text_parts.extend(peer.model_dump_json() for peer in snapshot.competitive_landscape)
+    text_parts.extend(peer.model_dump_json() for peer in snapshot.peer_landscape)
     text_parts.extend(
         driver.model_dump_json() for driver in snapshot.structural_drivers
     )
@@ -219,8 +219,8 @@ class ForbiddenClaimGrader:
         )
 
 
-class UnsupportedCompetitorGrader:
-    metric = "unsupported_competitors"
+class UnsupportedPeerRelationshipGrader:
+    metric = "unsupported_peer_relationships"
 
     def grade(
         self,
@@ -236,44 +236,42 @@ class UnsupportedCompetitorGrader:
                 reason="Output is not schema-valid",
                 failure_labels=["schema_failure"],
             )
-        if not case.expectations.enforce_supplied_competitors_only:
-            return EvalMetricResult(
-                metric=self.metric,
-                score=1.0,
-                passed=True,
-                reason="Case does not require closed-set competitor grounding",
-            )
-
         supplied = case.peers_fixture.peers if case.peers_fixture else []
-        allowed_tickers = {
-            peer.ticker.upper() for peer in supplied if peer.ticker is not None
-        }
-        allowed_names = {
-            _normalized_text(peer.name) for peer in supplied if peer.name is not None
-        }
-        unsupported: list[str] = []
-        for peer in snapshot.competitive_landscape:
-            ticker_allowed = (
-                peer.ticker is not None and peer.ticker.upper() in allowed_tickers
+        unsupported = [
+            peer.ticker or peer.name
+            for peer in snapshot.peer_landscape
+            if case.expectations.enforce_supplied_peers_only
+            and not any(_matches_peer(candidate, peer) for candidate in supplied)
+        ]
+        invalid_references = [
+            entity
+            for risk in snapshot.structural_risks
+            for entity in risk.related_entities
+            if not any(
+                _matches_entity(peer, entity) for peer in snapshot.peer_landscape
             )
-            name_allowed = _normalized_text(peer.name) in allowed_names
-            if not ticker_allowed and not name_allowed:
-                unsupported.append(peer.ticker or peer.name)
-
-        passed = not unsupported
+            or not any(_matches_entity(peer, entity) for peer in supplied)
+        ]
+        issues = []
+        if unsupported:
+            issues.append(
+                f"Peer landscape contains unsupported identities: {unsupported}"
+            )
+        if invalid_references:
+            issues.append(
+                f"related_entities references unknown peers: {invalid_references}"
+            )
         return EvalMetricResult(
             metric=self.metric,
-            score=1.0 if passed else 0.0,
-            passed=passed,
-            reason=None
-            if passed
-            else f"Competitive landscape contains unsupported peers: {unsupported}",
-            failure_labels=[] if passed else ["unsupported_competitor"],
+            score=0.0 if issues else 1.0,
+            passed=not issues,
+            reason="; ".join(issues) if issues else None,
+            failure_labels=["unsupported_peer_relationship"] if issues else [],
         )
 
 
-class CompetitiveEvidenceGrader:
-    metric = "competitive_evidence"
+class PeerCoverageGrader:
+    metric = "peer_coverage"
 
     def grade(self, case: StockSnapshotEvalCase, output: object) -> EvalMetricResult:
         snapshot = _validated_snapshot(output)
@@ -289,26 +287,55 @@ class CompetitiveEvidenceGrader:
         missing = {
             peer.ticker or peer.name or ""
             for peer in supplied
-            if (peer.ticker or peer.name)
+            if ((peer.ticker or "").strip() or (peer.name or "").strip())
             and not any(
-                self._matches_peer(peer, generated)
-                for generated in snapshot.competitive_landscape
+                _matches_peer(peer, generated) for generated in snapshot.peer_landscape
             )
         }
         placeholders = [
             peer.ticker or peer.name
-            for peer in snapshot.competitive_landscape
+            for peer in snapshot.peer_landscape
             if any(
                 _normalized_text(value)
-                in {"", "not available", "none", "unknown", "n a"}
+                in {
+                    "",
+                    "not available",
+                    "none",
+                    "unknown",
+                    "n a",
+                    "low",
+                    "medium",
+                    "high",
+                }
                 for value in (
-                    peer.competition_area,
-                    peer.why_competitor,
-                    peer.why_it_matters,
+                    peer.relationship_area,
+                    peer.why_relevant,
                 )
             )
         ]
+        duplicates = [
+            peer.ticker or peer.name
+            for peer in supplied
+            if sum(
+                _matches_peer(peer, generated) for generated in snapshot.peer_landscape
+            )
+            > 1
+        ]
+        dropped_tickers = sorted(
+            {
+                peer.ticker.strip().upper()
+                for peer in supplied
+                if peer.ticker and peer.ticker.strip()
+                for generated in snapshot.peer_landscape
+                if _matches_peer(peer, generated)
+                and not (generated.ticker or "").strip()
+            }
+        )
         issues = []
+        if dropped_tickers:
+            issues.append(f"Supplied peer tickers not preserved: {dropped_tickers}")
+        if duplicates:
+            issues.append(f"Duplicate provider-reported peer entries: {duplicates}")
         if missing:
             issues.append(f"Missing provider-reported peers: {sorted(missing)}")
         if placeholders:
@@ -318,17 +345,31 @@ class CompetitiveEvidenceGrader:
             score=0.0 if issues else 1.0,
             passed=not issues,
             reason="; ".join(issues) if issues else None,
-            failure_labels=["competitive_evidence_failure"] if issues else [],
+            failure_labels=["peer_coverage_failure"] if issues else [],
         )
 
-    @staticmethod
-    def _matches_peer(supplied: CompanyPeer, generated: CompetitivePeer) -> bool:
-        if supplied.ticker and generated.ticker:
-            return supplied.ticker.strip().upper() == generated.ticker.strip().upper()
-        return bool(
-            supplied.name
-            and _normalized_text(supplied.name) == _normalized_text(generated.name)
-        )
+
+def _matches_peer(supplied: CompanyPeer, generated: PeerRelationship) -> bool:
+    if supplied.ticker and generated.ticker:
+        return supplied.ticker.strip().upper() == generated.ticker.strip().upper()
+    name = supplied.name or (supplied.profile.name if supplied.profile else None)
+    return bool(
+        name
+        and _normalized_text(name) == _normalized_text(generated.name)
+        or not name
+        and supplied.ticker
+        and supplied.ticker.strip().upper() == generated.name.strip().upper()
+    )
+
+
+def _matches_entity(peer: CompanyPeer | PeerRelationship, entity: str) -> bool:
+    name = peer.name
+    if not name and isinstance(peer, CompanyPeer) and peer.profile:
+        name = peer.profile.name
+    return bool(entity.strip()) and (
+        bool(peer.ticker and peer.ticker.strip().upper() == entity.strip().upper())
+        or bool(name and _normalized_text(name) == _normalized_text(entity))
+    )
 
 
 class UnsupportedNumericClaimGrader:
@@ -434,8 +475,8 @@ def default_deterministic_graders() -> list[DeterministicGrader]:
         DataScopeGrader(),
         UnsupportedNumericClaimGrader(),
         ForbiddenClaimGrader(),
-        UnsupportedCompetitorGrader(),
-        CompetitiveEvidenceGrader(),
+        UnsupportedPeerRelationshipGrader(),
+        PeerCoverageGrader(),
     ]
 
 

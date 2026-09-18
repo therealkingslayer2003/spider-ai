@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from uuid import uuid4
 
 from app.llm.base import BaseChatModelClient
+from app.llm.prompts.company_peer_projection import PeerContextMode
+from app.llm.prompts.feature_snapshot_prompt import ASSET_SNAPSHOT_PROMPT
 from evals.asset_snapshot.frozen import build_frozen_execution
 from evals.asset_snapshot.graders import (
     DeterministicGrader,
@@ -19,6 +21,10 @@ from evals.asset_snapshot.models import (
     StockSnapshotEvalCase,
     StockSnapshotEvalReport,
 )
+from evals.asset_snapshot.prompt_measurements import (
+    MeasuredSnapshotPromptBuilder,
+    text_sha256,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +36,12 @@ class StockSnapshotEvaluator:
         generation_client: BaseChatModelClient,
         semantic_graders: Sequence[LLMJudgeGrader] = (),
         deterministic_graders: Sequence[DeterministicGrader] | None = None,
+        peer_context_mode: PeerContextMode = "compact",
+        feature_prompt: str = ASSET_SNAPSHOT_PROMPT,
     ) -> None:
         self._generation_client = generation_client
+        self._peer_context_mode = peer_context_mode
+        self._feature_prompt = feature_prompt
         self._semantic_graders = list(semantic_graders)
         self._deterministic_graders = list(
             deterministic_graders or default_deterministic_graders()
@@ -55,7 +65,7 @@ class StockSnapshotEvaluator:
         logger.info(
             "eval.run.start run_id=%s dataset=%s cases=%s "
             "generation_model=%s judge_model=%s deterministic_graders=%s "
-            "semantic_graders=%s deterministic_only=%s",
+            "semantic_graders=%s deterministic_only=%s peer_context_mode=%s",
             run_id,
             dataset_version,
             len(cases),
@@ -64,6 +74,7 @@ class StockSnapshotEvaluator:
             len(self._deterministic_graders),
             len(self._semantic_graders),
             deterministic_only,
+            self._peer_context_mode,
         )
         case_results = [
             await self._run_case(
@@ -79,6 +90,9 @@ class StockSnapshotEvaluator:
             git_commit_sha=_git_commit_sha(),
             generation_model=generation_model,
             judge_model=judge_model,
+            peer_context_mode=self._peer_context_mode,
+            feature_prompt_sha256=text_sha256(self._feature_prompt),
+            feature_prompt_chars=len(self._feature_prompt),
             case_count=len(cases),
             approved_case_count=sum(
                 case.metadata.review_status == "approved" for case in cases
@@ -150,8 +164,18 @@ class StockSnapshotEvaluator:
             case.expectations.business_model_concepts,
             case.expectations.structural_risk_themes,
         )
+        prompt_builder = MeasuredSnapshotPromptBuilder(
+            peer_context_mode=self._peer_context_mode,
+            feature_prompt=self._feature_prompt,
+        )
+        generation_started = time.perf_counter()
         try:
-            execution = build_frozen_execution(case, self._generation_client)
+            execution = build_frozen_execution(
+                case,
+                self._generation_client,
+                peer_context_mode=self._peer_context_mode,
+                prompt_builder=prompt_builder,
+            )
             generation_started = time.perf_counter()
             logger.info(
                 "eval.case.generation.start run_id=%s case_id=%s asset=%s",
@@ -180,8 +204,11 @@ class StockSnapshotEvaluator:
                 ),
                 failure_labels=["generation_failure"],
                 latency_seconds=latency,
+                generation_latency_seconds=time.perf_counter() - generation_started,
+                prompt_measurements=prompt_builder.measurements,
                 error=str(exc),
             )
+        generation_latency = time.perf_counter() - generation_started
         logger.info(
             "eval.case.generation.success run_id=%s case_id=%s "
             "duration_seconds=%.3f data_scope=%s drivers=%s risks=%s peers=%s",
@@ -191,7 +218,7 @@ class StockSnapshotEvaluator:
             output.data_scope,
             len(output.structural_drivers),
             len(output.structural_risks),
-            len(output.competitive_landscape),
+            len(output.peer_landscape),
         )
 
         deterministic_results = [
@@ -263,6 +290,8 @@ class StockSnapshotEvaluator:
             ),
             failure_labels=sorted(failure_labels),
             latency_seconds=latency,
+            generation_latency_seconds=generation_latency,
+            prompt_measurements=prompt_builder.measurements,
             error="; ".join(judge_errors) if judge_errors else None,
         )
         logger.info(

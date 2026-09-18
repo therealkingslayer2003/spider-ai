@@ -54,21 +54,24 @@ def make_profile(asset: str = "NVDA") -> AssetProfileContext:
     )
 
 
-def snapshot_json(asset: str = "NVDA") -> str:
-    return json.dumps(
+def make_snapshot(asset: str = "NVDA") -> StockAssetSnapshot:
+    return StockAssetSnapshot.model_validate(
         {
             "asset": asset,
             "asset_type": "stock",
             "summary": "GPU manufacturer.",
             "market_context": "Semiconductor sector.",
             "business_or_asset_profile": "Designs GPUs for gaming and AI.",
-            "competitive_landscape": [
+            "peer_landscape": [
                 {
                     "ticker": "AMD",
                     "name": "Advanced Micro Devices",
-                    "competition_area": "AI accelerators",
-                    "why_competitor": "AMD competes in GPUs and accelerators.",
-                    "why_it_matters": "It can pressure Nvidia pricing and share.",
+                    "peer_type": "direct_competitor",
+                    "relationship_area": "AI accelerators",
+                    "why_relevant": (
+                        "AMD competes in GPUs and accelerators, which can pressure "
+                        "Nvidia pricing and share."
+                    ),
                 }
             ],
             "structural_drivers": [
@@ -83,7 +86,7 @@ def snapshot_json(asset: str = "NVDA") -> str:
                     "title": "Supply chain concentration",
                     "explanation": "Foundry constraints can affect availability.",
                     "materiality": "high",
-                    "related_competitors": ["AMD"],
+                    "related_entities": ["AMD"],
                 }
             ],
             "data_scope": "profile_with_peers_and_financial_signals",
@@ -260,9 +263,10 @@ async def test_company_peers_tool_handles_exception() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generate_snapshot_sets_raw_llm_output() -> None:
+async def test_generate_snapshot_stores_only_typed_output() -> None:
     mock_llm = AsyncMock()
-    mock_llm.generate.return_value = snapshot_json()
+    snapshot = make_snapshot()
+    mock_llm.generate.return_value = snapshot
     mock_builder = MagicMock()
     mock_builder.build_prompt.return_value = "prompt"
 
@@ -275,13 +279,17 @@ async def test_generate_snapshot_sets_raw_llm_output() -> None:
     }
     mock_builder.data_scope.return_value = "model_static_knowledge_fallback"
     result = await generate_stock_snapshot_node(state, mock_llm, mock_builder)
-    assert result["raw_llm_output"] == snapshot_json()
+    assert result["validated_output"] is snapshot
+    assert set(result) == {"validated_output", "data_scope", "generation_prompt"}
+    mock_llm.generate.assert_awaited_once_with(
+        "prompt", response_schema=StockAssetSnapshot
+    )
 
 
 @pytest.mark.asyncio
 async def test_generate_snapshot_passes_profile_context_to_builder() -> None:
     mock_llm = AsyncMock()
-    mock_llm.generate.return_value = snapshot_json()
+    mock_llm.generate.return_value = make_snapshot()
     mock_builder = MagicMock()
     mock_builder.build_prompt.return_value = "prompt"
     profile = make_profile()
@@ -399,7 +407,7 @@ async def test_generate_snapshot_records_error_on_llm_failure() -> None:
     }
     mock_builder.data_scope.return_value = "model_static_knowledge_fallback"
     result = await generate_stock_snapshot_node(state, mock_llm, mock_builder)
-    assert result["raw_llm_output"] is None
+    assert result["validated_output"] is None
     assert any("timeout" in e for e in result["errors"])
 
 
@@ -407,22 +415,27 @@ async def test_generate_snapshot_records_error_on_llm_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_validate_snapshot_parses_json() -> None:
-    state = {"raw_llm_output": snapshot_json(), "errors": []}
+async def test_validate_snapshot_preserves_typed_output_without_request() -> None:
+    snapshot = make_snapshot()
+    state = {"validated_output": snapshot, "errors": []}
     result = await validate_stock_snapshot_node(state)
-    assert isinstance(result["validated_output"], StockAssetSnapshot)
+    assert result["validated_output"] is snapshot
 
 
 @pytest.mark.asyncio
-async def test_validate_snapshot_normalizes_workflow_owned_metadata() -> None:
-    payload = json.loads(snapshot_json("WRONG"))
-    payload["asset_type"] = "Company"
-    payload["data_scope"] = "wrong_scope"
+@pytest.mark.parametrize("resolved_asset", [None, "NVDA"])
+@pytest.mark.parametrize("data_scope", [None, "profile_only"])
+async def test_validate_snapshot_normalizes_workflow_owned_metadata(
+    resolved_asset, data_scope
+) -> None:
+    snapshot = make_snapshot("WRONG").model_copy(
+        update={"asset_type": AssetType.ETF, "data_scope": "generated_scope"}
+    )
     state = {
-        "request": make_request("NVDA"),
-        "resolved_asset": "NVDA",
-        "data_scope": "profile_only",
-        "raw_llm_output": json.dumps(payload),
+        "request": make_request("Nvidia"),
+        "resolved_asset": resolved_asset,
+        "data_scope": data_scope,
+        "validated_output": snapshot,
         "errors": [],
     }
 
@@ -430,39 +443,22 @@ async def test_validate_snapshot_normalizes_workflow_owned_metadata() -> None:
 
     output = result["validated_output"]
     assert isinstance(output, StockAssetSnapshot)
-    assert output.asset == "NVDA"
+    assert output.asset == (resolved_asset or "NVIDIA")
     assert output.asset_type is AssetType.STOCK
-    assert output.data_scope == "profile_only"
-
-
-@pytest.mark.asyncio
-async def test_validate_snapshot_rejects_snapshot_wrapper() -> None:
-    wrapped = json.dumps(
-        {
-            "snapshot": json.loads(snapshot_json()),
-        }
+    assert output.data_scope == (data_scope or "generated_scope")
+    assert output is not snapshot
+    assert snapshot.asset == "WRONG"
+    assert snapshot.asset_type is AssetType.ETF
+    assert snapshot.data_scope == "generated_scope"
+    analytical_fields = {"asset", "asset_type", "data_scope"}
+    assert output.model_dump(exclude=analytical_fields) == snapshot.model_dump(
+        exclude=analytical_fields
     )
-
-    result = await validate_stock_snapshot_node(
-        {"raw_llm_output": wrapped, "errors": []}
-    )
-
-    assert result["validated_output"] is None
-
-
-@pytest.mark.asyncio
-async def test_validate_snapshot_parses_markdown_fenced_json() -> None:
-    state = {"raw_llm_output": f"```json\n{snapshot_json('MA')}\n```", "errors": []}
-    result = await validate_stock_snapshot_node(state)
-    output = result["validated_output"]
-
-    assert isinstance(output, StockAssetSnapshot)
-    assert output.asset == "MA"
 
 
 @pytest.mark.asyncio
 async def test_validate_snapshot_fields_are_correct() -> None:
-    state = {"raw_llm_output": snapshot_json("MA"), "errors": []}
+    state = {"validated_output": make_snapshot("MA"), "errors": []}
     result = await validate_stock_snapshot_node(state)
     output = result["validated_output"]
     assert output.asset == "MA"
@@ -473,39 +469,65 @@ async def test_validate_snapshot_fields_are_correct() -> None:
 
 
 @pytest.mark.asyncio
-async def test_validate_snapshot_accepts_uppercase_materiality() -> None:
-    payload = json.loads(snapshot_json("GOOGL"))
-    payload["structural_drivers"][0]["materiality"] = "High"
-    payload["structural_risks"][0]["materiality"] = "Medium"
-    state = {"raw_llm_output": json.dumps(payload), "errors": []}
+async def test_finalization_does_not_serialize_or_revalidate(monkeypatch) -> None:
+    snapshot = make_snapshot()
+    state = {
+        "request": make_request(),
+        "validated_output": snapshot,
+        "data_scope": "profile_only",
+        "errors": [],
+    }
+
+    def unexpected_round_trip(*args, **kwargs):
+        raise AssertionError("Finalization must use the already-validated object")
+
+    for method in ("model_dump_json", "model_validate_json", "model_validate"):
+        monkeypatch.setattr(StockAssetSnapshot, method, unexpected_round_trip)
 
     result = await validate_stock_snapshot_node(state)
-    output = result["validated_output"]
 
-    assert isinstance(output, StockAssetSnapshot)
-    assert output.structural_drivers[0].materiality == "high"
-    assert output.structural_risks[0].materiality == "medium"
+    assert isinstance(result["validated_output"], StockAssetSnapshot)
+    assert result["validated_output"].asset == "NVDA"
+    assert "errors" not in result
 
 
 @pytest.mark.asyncio
-async def test_validate_snapshot_returns_none_on_invalid_json() -> None:
-    state = {"raw_llm_output": "not json at all", "errors": []}
+@pytest.mark.parametrize("invalid_output", ["not a model", {"asset": "NVDA"}])
+async def test_validate_snapshot_rejects_untyped_state(invalid_output) -> None:
+    state = {"validated_output": invalid_output, "errors": ["earlier error"]}
     result = await validate_stock_snapshot_node(state)
     assert result["validated_output"] is None
-    assert any("parse error" in e for e in result["errors"])
+    assert result["errors"][0] == "earlier error"
+    assert any("Expected a validated StockAssetSnapshot" in e for e in result["errors"])
 
 
 @pytest.mark.asyncio
-async def test_validate_snapshot_returns_none_on_missing_fields() -> None:
-    state = {"raw_llm_output": json.dumps({"asset": "NVDA"}), "errors": []}
+@pytest.mark.parametrize("has_peers", [True, False])
+@pytest.mark.parametrize("empty_landscape", [True, False])
+async def test_validate_snapshot_warns_only_when_supplied_peers_are_omitted(
+    has_peers, empty_landscape, caplog
+) -> None:
+    snapshot = make_snapshot()
+    if empty_landscape:
+        snapshot = snapshot.model_copy(update={"peer_landscape": []})
+    state = {
+        "request": make_request(),
+        "validated_output": snapshot,
+        "company_peers_context": make_peer_context() if has_peers else None,
+        "errors": [],
+    }
     result = await validate_stock_snapshot_node(state)
-    assert result["validated_output"] is None
-    assert result["errors"]
+    assert result["validated_output"] is not None
+    assert result["validated_output"].peer_landscape == snapshot.peer_landscape
+    assert "errors" not in result
+    assert ("stock.validate_snapshot.empty_landscape" in caplog.text) == (
+        has_peers and empty_landscape
+    )
 
 
 @pytest.mark.asyncio
 async def test_validate_snapshot_returns_none_when_no_output() -> None:
-    state = {"raw_llm_output": None, "errors": []}
+    state = {"validated_output": None, "errors": ["generation failed"]}
     result = await validate_stock_snapshot_node(state)
     assert result["validated_output"] is None
-    assert result["errors"]
+    assert result["errors"][0] == "generation failed"

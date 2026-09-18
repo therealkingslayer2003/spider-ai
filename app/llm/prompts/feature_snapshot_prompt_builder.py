@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from app.domain.schemas.asset_profile_context import AssetProfileContext
@@ -6,13 +7,27 @@ from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
 from app.domain.schemas.company_peer_context import CompanyPeersContext
+from app.llm.prompts.company_peer_projection import (
+    PeerContextMode,
+    project_company_peer,
+)
 from app.llm.prompts.feature_snapshot_prompt import ASSET_SNAPSHOT_PROMPT
 from app.llm.prompts.system_prompts import BASE_SYSTEM_PROMPT
 
 _BUSINESS_SUMMARY_MAX_LENGTH = 1_200
+logger = logging.getLogger(__name__)
 
 
 class StockSnapshotPromptBuilder:
+    def __init__(
+        self,
+        *,
+        peer_context_mode: PeerContextMode = "compact",
+        feature_prompt: str = ASSET_SNAPSHOT_PROMPT,
+    ) -> None:
+        self._peer_context_mode = peer_context_mode
+        self._feature_prompt = feature_prompt
+
     def build_prompt(
         self,
         asset: str,
@@ -29,7 +44,7 @@ class StockSnapshotPromptBuilder:
         prompt = (
             BASE_SYSTEM_PROMPT
             + "\n\n"
-            + ASSET_SNAPSHOT_PROMPT.format(
+            + self._feature_prompt.format(
                 asset=asset,
                 asset_type=asset_type.value,
                 data_scope=data_scope,
@@ -40,7 +55,7 @@ class StockSnapshotPromptBuilder:
             "LLM context block:",
             "1. COMPANY PROFILE",
             self._build_profile_context_section(asset_profile_context),
-            "2. COMPETITIVE CONTEXT",
+            "2. PEER CONTEXT",
             self._build_peer_context_section(company_peers_context),
             "3. SUPPORTING FINANCIAL FUNDAMENTALS",
             self._build_fundamentals_context_section(company_fundamentals_context),
@@ -77,15 +92,80 @@ class StockSnapshotPromptBuilder:
         self,
         company_peers_context: CompanyPeersContext | None,
     ) -> str:
+        if (
+            self._peer_context_mode == "full"
+            or company_peers_context is None
+            or not company_peers_context.peers
+        ):
+            section = self._build_full_peer_context_section(company_peers_context)
+        else:
+            section = self._build_compact_peer_context_section(company_peers_context)
+        logger.debug(
+            "snapshot_prompt.peer_context peer_count=%s peer_context_chars=%s "
+            "mode=%s peer_content=%s",
+            len(company_peers_context.peers) if company_peers_context else 0,
+            len(section),
+            self._peer_context_mode,
+            section,
+        )
+        return section
+
+    def _build_compact_peer_context_section(self, context: CompanyPeersContext) -> str:
+        lines = [f"Peer discovery provider: {context.provider}"]
+        if self._peer_context_mode == "compact":
+            profile_sources: dict[str, list[str]] = {}
+            for index, peer in enumerate(context.peers, start=1):
+                if peer.profile is not None:
+                    identity = peer.ticker or peer.name or f"entry {index}"
+                    profile_sources.setdefault(peer.profile.provider, []).append(
+                        identity
+                    )
+            if len(profile_sources) == 1:
+                lines.append(f"Peer profile provider: {next(iter(profile_sources))}")
+            elif profile_sources:
+                lines.append(
+                    "Peer profile providers: "
+                    + "; ".join(
+                        f"{provider} ({', '.join(identities)})"
+                        for provider, identities in profile_sources.items()
+                    )
+                )
+        lines.append(
+            "Provider-reported peers are a research universe, not necessarily "
+            "direct competitors. Use supplied profiles first and reliable stable "
+            "knowledge second to classify and explain relevance. Retain peers "
+            "without profiles; qualify overlap and impact when support is insufficient."
+        )
+        for peer in context.peers:
+            projection = project_company_peer(peer)
+            identity = " | ".join(
+                value for value in (projection.ticker, projection.name) if value
+            )
+            lines.append(f"- {identity or 'Unidentified provider peer'}")
+            if self._peer_context_mode == "compact":
+                for label, value in (
+                    ("Sector", projection.sector),
+                    ("Industry", projection.industry),
+                    ("Business", projection.business_summary),
+                ):
+                    if value:
+                        lines.append(f"  {label}: {value}")
+        return "\n".join(lines)
+
+    def _build_full_peer_context_section(
+        self,
+        company_peers_context: CompanyPeersContext | None,
+    ) -> str:
+        # Preserve the previous rendering for controlled eval comparisons.
         if company_peers_context is None:
-            return "Provider: none\nStatus: No competitive peer context was provided."
+            return "Provider: none\nStatus: No peer context was provided."
 
         if not company_peers_context.peers:
             return (
                 f"Provider: {company_peers_context.provider}\n"
                 f"Asset: {company_peers_context.asset}\n"
                 f"Fetched at: {company_peers_context.fetched_at.isoformat()}\n"
-                "Peers: none provided. Do not invent obscure competitors."
+                "Peers: none provided. Return an empty peer_landscape."
             )
 
         peers = "\n".join(
@@ -96,7 +176,8 @@ class StockSnapshotPromptBuilder:
                     self._build_profile_context_section(peer.profile)
                     if peer.profile is not None
                     else "Peer profile unavailable. Retain this provider-reported "
-                    "peer and state that specific overlap and impact are unconfirmed."
+                    "peer; use reliable stable knowledge if available, otherwise "
+                    "qualify the relationship and economic relevance as unclear."
                 )
             )
             for peer in company_peers_context.peers

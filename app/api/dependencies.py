@@ -42,7 +42,7 @@ def get_snapshot_artifact_persistence_service() -> SnapshotArtifactPersistenceSe
     return SnapshotArtifactPersistenceService(
         database=get_database(),
         model=settings.ollama_chat_model,
-        prompt_version="stock_snapshot_provider_peers_v1",
+        prompt_version="stock_snapshot_peer_landscape_v4",
     )
 
 

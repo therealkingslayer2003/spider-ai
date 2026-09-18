@@ -5,7 +5,7 @@ import pytest
 from app.domain.schemas.asset_snapshot import (
     AssetSnapshotRequest,
     AssetType,
-    CompetitivePeer,
+    PeerRelationship,
     StockAssetSnapshot,
     StructuralDriver,
     StructuralRisk,
@@ -31,13 +31,13 @@ def snapshot() -> StockAssetSnapshot:
         summary="NVDA is a GPU manufacturer.",
         market_context="Semiconductor sector.",
         business_or_asset_profile="Designs GPUs for gaming and AI.",
-        competitive_landscape=[
-            CompetitivePeer(
+        peer_landscape=[
+            PeerRelationship(
                 ticker="AMD",
                 name="Advanced Micro Devices",
-                competition_area="AI accelerators",
-                why_competitor="AMD competes in GPUs.",
-                why_it_matters="It pressures pricing and share.",
+                peer_type="direct_competitor",
+                relationship_area="AI accelerators",
+                why_relevant="AMD competes in GPUs, pressuring pricing and share.",
             )
         ],
         structural_drivers=[
@@ -52,7 +52,7 @@ def snapshot() -> StockAssetSnapshot:
                 title="Supply chain concentration",
                 explanation="Foundry constraints can affect availability.",
                 materiality="high",
-                related_competitors=["AMD"],
+                related_entities=["AMD"],
             )
         ],
         data_scope="profile_with_peers_and_financial_signals",

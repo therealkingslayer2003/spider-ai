@@ -17,8 +17,8 @@ def test_stock_snapshot_v1_dataset_is_valid_and_review_statuses_are_counted() ->
     cases = load_dataset()
     counts = dataset_status_counts(cases)
 
-    assert len(cases) == 30
-    assert len({case.id for case in cases}) == 30
+    assert len(cases) == 32
+    assert len({case.id for case in cases}) == 32
     assert {case.metadata.provenance for case in cases} == {"synthetic_ai_generated"}
     assert sum(counts.values()) == len(cases)
 
@@ -29,8 +29,8 @@ def test_stock_snapshot_v1_has_declared_case_mix_and_review_flags() -> None:
     assert Counter(case.metadata.case_kind for case in cases) == {
         "normal": 16,
         "fallback": 5,
-        "contrast": 5,
-        "adversarial": 4,
+        "contrast": 6,
+        "adversarial": 5,
     }
     for case in cases:
         if case.metadata.entity_kind == "real":
@@ -140,14 +140,23 @@ def test_peer_fixtures_contain_facts_not_precomputed_analysis() -> None:
             continue
         for peer in case.peers_fixture.peers:
             assert (
-                not {"competition_area", "why_competitor", "why_it_matters"}
+                not {
+                    "peer_type",
+                    "relationship_area",
+                    "why_relevant",
+                }
                 & peer.model_dump().keys()
             )
             if peer.profile:
                 assert peer.profile.asset == peer.ticker
                 assert peer.profile.business_summary
-        assert case.metadata.review_status == "pending_manual_review"
-        assert "REVIEW_PROVIDER_PEER_POLICY" in case.metadata.flags
+        assert (
+            case.metadata.review_status == "pending_manual_review"
+            or case.metadata.review_status == "approved"
+        )
+        assert {"REVIEW_PROVIDER_PEER_POLICY", "REVIEW_PEER_LANDSCAPE_POLICY"} & set(
+            case.metadata.flags
+        )
 
 
 def test_peer_policy_has_no_curated_inclusion_or_exclusion_labels() -> None:

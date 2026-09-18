@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from app.domain.schemas.asset_profile_context import AssetProfileContext
 from app.domain.schemas.asset_snapshot import (
     AssetType,
-    CompetitivePeer,
+    PeerRelationship,
     StockAssetSnapshot,
     StructuralDriver,
     StructuralRisk,
@@ -51,13 +51,16 @@ def make_snapshot(summary: str = "GPU platform company.") -> StockAssetSnapshot:
         summary=summary,
         business_or_asset_profile="Designs accelerated computing platforms.",
         market_context="Operates in semiconductors.",
-        competitive_landscape=[
-            CompetitivePeer(
+        peer_landscape=[
+            PeerRelationship(
                 ticker="AMD",
                 name="Advanced Micro Devices",
-                competition_area="Accelerators",
-                why_competitor="Competes for compute workloads.",
-                why_it_matters="Can pressure share and pricing.",
+                peer_type="direct_competitor",
+                relationship_area="Accelerators",
+                why_relevant=(
+                    "Competes for compute workloads, which can pressure share "
+                    "and pricing."
+                ),
             )
         ],
         structural_drivers=[
@@ -72,7 +75,7 @@ def make_snapshot(summary: str = "GPU platform company.") -> StockAssetSnapshot:
                 title="Foundry concentration",
                 explanation="Supply constraints can limit shipments.",
                 materiality="high",
-                related_competitors=["AMD"],
+                related_entities=["AMD"],
             )
         ],
         data_scope="profile_with_peers_and_financial_signals",

@@ -15,7 +15,6 @@ from app.agents.asset_snapshot.tools import (
 from app.core.config import get_settings
 from app.domain.schemas.asset_snapshot import StockAssetSnapshot
 from app.llm.base import BaseChatModelClient
-from app.llm.json_parser import parse_llm_json
 from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 
 _RESOLUTION_CONFIDENCE_THRESHOLD = 0.7
@@ -227,22 +226,23 @@ async def generate_stock_snapshot_node(
         )
 
     try:
-        raw_llm_output = await llm.generate(prompt)
+        snapshot = await llm.generate(prompt, response_schema=StockAssetSnapshot)
         if settings.app_log_flow_steps:
             logger.info(
-                "stock.generate_snapshot.llm_output_received chars=%s",
-                len(raw_llm_output),
+                "stock.generate_snapshot.llm_output_received asset=%s",
+                snapshot.asset,
             )
         return {
             "data_scope": data_scope,
             "generation_prompt": prompt,
-            "raw_llm_output": raw_llm_output,
+            "validated_output": snapshot,
         }
     except Exception as exc:
         logger.exception("stock.generate_snapshot.failed asset=%s", asset)
         return {
             "data_scope": data_scope,
-            "raw_llm_output": None,
+            "generation_prompt": prompt,
+            "validated_output": None,
             "errors": state.get("errors", []) + [f"LLM generation error: {exc}"],
         }
 
@@ -250,10 +250,10 @@ async def generate_stock_snapshot_node(
 async def validate_stock_snapshot_node(
     state: StockSnapshotState,
 ) -> StockSnapshotState:
-    raw_llm_output = state.get("raw_llm_output")
+    snapshot = state.get("validated_output")
     settings = get_settings()
 
-    if not raw_llm_output:
+    if snapshot is None:
         if settings.app_log_flow_steps:
             logger.info("stock.validate_snapshot.skipped reason=no_llm_output")
         return {
@@ -262,15 +262,19 @@ async def validate_stock_snapshot_node(
         }
 
     try:
-        data = parse_llm_json(raw_llm_output)
+        if not isinstance(snapshot, StockAssetSnapshot):
+            raise TypeError("Expected a validated StockAssetSnapshot")
+
         request = state.get("request")
-        if request is not None and isinstance(data, dict):
+        if request is not None:
             canonical_asset = state.get("resolved_asset") or request.asset
             canonical_data_scope = state.get("data_scope")
+            if canonical_data_scope is None:
+                canonical_data_scope = snapshot.data_scope
             generated_metadata = (
-                data.get("asset"),
-                data.get("asset_type"),
-                data.get("data_scope"),
+                snapshot.asset,
+                snapshot.asset_type.value,
+                snapshot.data_scope,
             )
             canonical_metadata = (
                 canonical_asset,
@@ -284,17 +288,17 @@ async def validate_stock_snapshot_node(
                     "generated_data_scope=%s",
                     *generated_metadata,
                 )
-            data = {
-                **data,
-                "asset": canonical_asset,
-                "asset_type": request.asset_type.value,
-            }
-            if canonical_data_scope is not None:
-                data["data_scope"] = canonical_data_scope
+            # Analytical fields are already validated; only trusted metadata changes.
+            snapshot = snapshot.model_copy(
+                update={
+                    "asset": canonical_asset,
+                    "asset_type": request.asset_type,
+                    "data_scope": canonical_data_scope,
+                }
+            )
 
-        validated_output = StockAssetSnapshot.model_validate(data)
         peers = state.get("company_peers_context")
-        if peers and peers.peers and not validated_output.competitive_landscape:
+        if peers and peers.peers and not snapshot.peer_landscape:
             logger.warning(
                 "stock.validate_snapshot.empty_landscape candidates=%s profiles=%s "
                 "reason=provider_reported_peers_not_acknowledged",
@@ -304,13 +308,13 @@ async def validate_stock_snapshot_node(
         if settings.app_log_flow_steps:
             logger.info(
                 "stock.validate_snapshot.success asset=%s asset_type=%s",
-                validated_output.asset,
-                validated_output.asset_type.value,
+                snapshot.asset,
+                snapshot.asset_type.value,
             )
-        return {"validated_output": validated_output}
+        return {"validated_output": snapshot}
     except Exception as exc:
         logger.exception("stock.validate_snapshot.failed")
         return {
             "validated_output": None,
-            "errors": state.get("errors", []) + [f"LLM output parse error: {exc}"],
+            "errors": state.get("errors", []) + [f"Snapshot finalization error: {exc}"],
         }

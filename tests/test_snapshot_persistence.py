@@ -18,6 +18,7 @@ from app.domain.schemas.asset_snapshot_evidence import (
 from app.domain.schemas.company_peer_context import CompanyPeer, CompanyPeersContext
 from app.infrastructure.db.dao import SnapshotResearchArtifactDao
 from app.infrastructure.db.database import Database
+from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 from app.services.asset_snapshot_service import AssetSnapshotService
 from app.services.snapshot_artifact_persistence_service import (
     SnapshotArtifactPersistenceService,
@@ -69,6 +70,21 @@ async def test_successful_asset_snapshot_is_persisted_after_validation(
         provider="fmp",
         peers=[CompanyPeer(ticker="AMD", profile=make_profile("AMD"))],
     )
+    peer_profile = evidence.company_peers_context.peers[0].profile
+    assert peer_profile is not None
+    peer_profile.business_summary = (
+        "Designs processors. Supplies computing hardware. "
+        "Licenses chip designs. Develops graphics products. Provides support. "
+        + "Full canonical evidence preserved in persistence. "
+        * 40
+    )
+    original_evidence = evidence.model_dump_json()
+    prompt = StockSnapshotPromptBuilder().build_prompt(
+        "NVDA", AssetType.STOCK, company_peers_context=evidence.company_peers_context
+    )
+    assert "Designs processors." in prompt
+    assert "Provides support." in prompt
+    assert "Full canonical evidence" not in prompt
     runner = AsyncMock(spec=AssetSnapshotGraphRunner)
     runner.run_result.return_value = AssetSnapshotRunResult(
         snapshot=snapshot,
@@ -95,6 +111,7 @@ async def test_successful_asset_snapshot_is_persisted_after_validation(
     assert stored is not None
     assert stored.snapshot == snapshot
     assert stored.evidence == evidence
+    assert stored.evidence.model_dump_json() == original_evidence
     assert stored.model == "llama3.1:8b"
     assert stored.prompt_version == "stock_snapshot_v1"
 

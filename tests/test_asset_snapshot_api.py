@@ -82,7 +82,7 @@ def test_asset_snapshot_endpoint_response_does_not_expose_persistence_metadata()
             "summary": "GPU platform company.",
             "business_or_asset_profile": "Designs accelerated computing products.",
             "market_context": "Semiconductor industry.",
-            "competitive_landscape": [],
+            "peer_landscape": [],
             "structural_drivers": [],
             "structural_risks": [],
             "data_scope": "profile_only",

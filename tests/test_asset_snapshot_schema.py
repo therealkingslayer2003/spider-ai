@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from app.domain.schemas.asset_snapshot import (
     AssetType,
-    CompetitivePeer,
+    PeerRelationship,
     StockAssetSnapshot,
 )
 from app.domain.schemas.asset_snapshot_evidence import AssetSnapshotEvidence
@@ -67,13 +67,16 @@ def test_asset_snapshot_validates_with_structured_fields() -> None:
             "summary": "Mastercard operates a global card network.",
             "business_or_asset_profile": "It earns fees from payment volume.",
             "market_context": "Payments are shaped by merchant acceptance.",
-            "competitive_landscape": [
+            "peer_landscape": [
                 {
                     "ticker": "V",
                     "name": "Visa",
-                    "competition_area": "Card network processing",
-                    "why_competitor": "Visa operates a similar network.",
-                    "why_it_matters": "It competes for transaction volume.",
+                    "peer_type": "direct_competitor",
+                    "relationship_area": "Card network processing",
+                    "why_relevant": (
+                        "Visa operates a similar network and competes for "
+                        "transaction volume."
+                    ),
                 }
             ],
             "structural_drivers": [
@@ -88,7 +91,7 @@ def test_asset_snapshot_validates_with_structured_fields() -> None:
                     "title": "Payment regulation",
                     "explanation": "Fee caps can reduce transaction economics.",
                     "materiality": "high",
-                    "related_competitors": ["V"],
+                    "related_entities": ["V"],
                 }
             ],
             "data_scope": "profile_with_peers_and_financial_signals",
@@ -97,7 +100,7 @@ def test_asset_snapshot_validates_with_structured_fields() -> None:
 
     assert snapshot.asset == "MA"
     assert snapshot.asset_type == AssetType.STOCK
-    assert snapshot.competitive_landscape[0].ticker == "V"
+    assert snapshot.peer_landscape[0].ticker == "V"
     assert snapshot.structural_risks[0].materiality == "high"
 
 
@@ -118,7 +121,7 @@ def test_asset_snapshot_normalizes_materiality_case() -> None:
             "summary": "Alphabet operates digital platforms.",
             "business_or_asset_profile": "It earns revenue from advertising.",
             "market_context": "Digital advertising is competitive.",
-            "competitive_landscape": [],
+            "peer_landscape": [],
             "structural_drivers": [
                 {
                     "title": "Search advertising",
@@ -131,7 +134,7 @@ def test_asset_snapshot_normalizes_materiality_case() -> None:
                     "title": "AI search substitution",
                     "explanation": "New discovery formats can pressure queries.",
                     "materiality": "Medium",
-                    "related_competitors": ["MSFT"],
+                    "related_entities": ["MSFT"],
                 }
             ],
             "data_scope": "profile_with_peers_and_financial_signals",
@@ -151,13 +154,13 @@ def test_structural_risk_requires_materiality() -> None:
                 "summary": "Mastercard operates a global card network.",
                 "business_or_asset_profile": "It earns fees from payment volume.",
                 "market_context": "Payments are shaped by merchant acceptance.",
-                "competitive_landscape": [],
+                "peer_landscape": [],
                 "structural_drivers": [],
                 "structural_risks": [
                     {
                         "title": "Payment regulation",
                         "explanation": "Fee caps can reduce economics.",
-                        "related_competitors": ["V"],
+                        "related_entities": ["V"],
                     }
                 ],
                 "data_scope": "profile_only",
@@ -166,12 +169,15 @@ def test_structural_risk_requires_materiality() -> None:
 
 
 def test_competitive_peer_validates_with_nullable_ticker() -> None:
-    peer = CompetitivePeer(
+    peer = PeerRelationship(
         ticker=None,
         name="TikTok / ByteDance",
-        competition_area="Video attention",
-        why_competitor="Competes for user time and creator activity.",
-        why_it_matters="Attention shifts can pressure ad inventory.",
+        peer_type="indirect_competitor",
+        relationship_area="Video attention",
+        why_relevant=(
+            "Competes for user time and creator activity; attention shifts can "
+            "pressure ad inventory."
+        ),
     )
 
     assert peer.ticker is None

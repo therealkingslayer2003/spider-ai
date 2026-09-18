@@ -13,6 +13,7 @@ from app.domain.schemas.company_fundamentals_context import (
     CompanyFundamentalsContext,
 )
 from app.domain.schemas.company_peer_context import CompanyPeersContext
+from app.llm.prompts.company_peer_projection import PeerContextMode
 
 ReviewStatus = Literal["pending_manual_review", "approved", "rejected"]
 Provenance = Literal[
@@ -45,7 +46,8 @@ class EvalExpectations(BaseModel):
     require_company_specificity: bool = True
     require_structural_risks: bool = True
     require_mechanism_explanation: bool = True
-    enforce_supplied_competitors_only: bool = False
+    enforce_supplied_peers_only: bool = False
+    peer_relationship_guidance: list[str] = Field(default_factory=list)
 
 
 class StockSnapshotEvalCase(BaseModel):
@@ -140,7 +142,18 @@ class EvalCaseResult(BaseModel):
     semantic_metrics_expected: int = Field(default=0, ge=0)
     failure_labels: list[str] = Field(default_factory=list)
     latency_seconds: float
+    generation_latency_seconds: float | None = None
+    prompt_measurements: "PromptMeasurements | None" = None
     error: str | None = None
+
+
+class PromptMeasurements(BaseModel):
+    feature_prompt_chars: int
+    static_prompt_chars: int
+    dynamic_context_chars: int
+    total_prompt_chars: int
+    dynamic_context_sha256: str
+    prompt_sha256: str
 
 
 class EvalAggregate(BaseModel):
@@ -154,6 +167,9 @@ class StockSnapshotEvalReport(BaseModel):
     git_commit_sha: str | None
     generation_model: str
     judge_model: str | None
+    peer_context_mode: PeerContextMode | None = None
+    feature_prompt_sha256: str | None = None
+    feature_prompt_chars: int | None = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     case_count: int
     approved_case_count: int

@@ -9,10 +9,21 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, field_validator
 
+from app.agents.asset_snapshot.router.graph import AssetSnapshotRouterGraph
+from app.agents.asset_snapshot.runner import AssetSnapshotGraphRunner
+from app.agents.asset_snapshot.stock.graph import StockSnapshotSubgraph
+from app.core.exceptions import ServiceError
 from app.domain.schemas.asset_snapshot import StockAssetSnapshot
 from app.llm.ollama_client import OllamaChatClient
+from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptBuilder
 from evals.asset_snapshot.eval_llm import EvalOllamaClient
-from tests.test_graph import llm_response
+from tests.test_graph import (
+    llm_response,
+    make_empty_fundamentals,
+    make_empty_peers,
+    make_profile,
+    make_request,
+)
 
 
 def model_result(content: str) -> ChatResult:
@@ -160,11 +171,11 @@ async def test_nested_validation_errors_propagate_without_retry(
 ):
     payload = json.loads(llm_response())
     if failure == "missing-field":
-        del payload["competitive_landscape"][0]["why_it_matters"]
+        del payload["peer_landscape"][0]["why_relevant"]
     elif failure == "invalid-literal":
         payload["structural_risks"][0]["materiality"] = "critical"
     else:
-        payload["competitive_landscape"][0]["why_it_matters"] = 123
+        payload["peer_landscape"][0]["why_relevant"] = 123
     raw_response = f"```json\n{json.dumps(payload, indent=2)}\n```"
     model_call.side_effect = [model_result(raw_response), model_result(llm_response())]
 
@@ -233,10 +244,47 @@ async def test_schema_valid_output_is_not_retried_for_semantic_issues(
     client, model_call
 ):
     payload = json.loads(llm_response())
-    payload["competitive_landscape"] = []
+    payload["peer_landscape"] = []
     model_call.return_value = model_result(json.dumps(payload))
 
     result = await client.generate("Snapshot", response_schema=StockAssetSnapshot)
 
-    assert result.competitive_landscape == []
+    assert result.peer_landscape == []
     model_call.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valid_output", [True, False])
+async def test_graph_single_generation_and_controlled_failure_without_rerunning_tools(
+    model_call, valid_output
+):
+    model_call.return_value = model_result(
+        llm_response() if valid_output else "not JSON"
+    )
+    profile_tool = AsyncMock(run=AsyncMock(return_value=make_profile()))
+    peers_tool = AsyncMock(run=AsyncMock(return_value=make_empty_peers()))
+    fundamentals_tool = AsyncMock(run=AsyncMock(return_value=make_empty_fundamentals()))
+    subgraph = StockSnapshotSubgraph(
+        company_profile_tool=profile_tool,
+        company_peers_tool=peers_tool,
+        company_fundamentals_tool=fundamentals_tool,
+        prompt_builder=StockSnapshotPromptBuilder(),
+        llm_client=OllamaChatClient(),
+    )
+    runner = AssetSnapshotGraphRunner(AssetSnapshotRouterGraph(subgraph))
+
+    if valid_output:
+        result = await runner.run(make_request())
+        assert isinstance(result, StockAssetSnapshot)
+        assert result.asset == "NVDA"
+        assert result.data_scope == "profile_only"
+    else:
+        with pytest.raises(ServiceError, match="Asset snapshot generation failed"):
+            await runner.run(make_request())
+
+    model_call.assert_awaited_once()
+    original_prompt = model_call.await_args_list[0].args[0][0].content
+    assert "Designs GPUs" in original_prompt
+    profile_tool.run.assert_awaited_once()
+    peers_tool.run.assert_awaited_once()
+    fundamentals_tool.run.assert_awaited_once()
