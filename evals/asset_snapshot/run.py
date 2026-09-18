@@ -8,6 +8,8 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.llm.ollama_client import OllamaChatClient
 from app.llm.prompts.company_peer_projection import PeerContextMode
+from evals.asset_snapshot.comparison import PromptComparisonEvaluator
+from evals.asset_snapshot.comparison_reporting import write_comparison_report
 from evals.asset_snapshot.config import get_eval_settings
 from evals.asset_snapshot.dataset import (
     DATASET_VERSION,
@@ -18,6 +20,7 @@ from evals.asset_snapshot.dataset import (
 )
 from evals.asset_snapshot.eval_llm import EvalOllamaClient
 from evals.asset_snapshot.judge import default_semantic_graders
+from evals.asset_snapshot.pairwise import PairwiseSnapshotJudge
 from evals.asset_snapshot.reporting import write_report
 from evals.asset_snapshot.runner import StockSnapshotEvaluator
 
@@ -44,6 +47,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deterministic-only", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument(
+        "--compare-prompts",
+        action="store_true",
+        help="paired original/compressed feature-prompt evaluation on frozen cases",
+    )
+    parser.add_argument(
+        "--pairwise-only",
+        action="store_true",
+        help="with --compare-prompts, skip individual semantic graders (keep pairwise)",
+    )
+    parser.add_argument(
         "--peer-context",
         choices=get_args(PeerContextMode),
         default="compact",
@@ -54,6 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def run_from_args(args: argparse.Namespace) -> int:
+    if args.pairwise_only and (not args.compare_prompts or args.deterministic_only):
+        raise ValueError(
+            "--pairwise-only requires --compare-prompts without --deterministic-only"
+        )
     dataset_path = _dataset_path(args.dataset)
     dataset_version = (
         DATASET_VERSION
@@ -137,7 +154,8 @@ async def run_from_args(args: argparse.Namespace) -> int:
             base_url=configured_judge_base_url,
         )
         judge_model = judge_client.model_name
-        semantic_graders = default_semantic_graders(judge_client)
+        if not args.pairwise_only:
+            semantic_graders = default_semantic_graders(judge_client)
 
     logger.info(
         "eval.cli.clients.ready generation_model=%s judge_model=%s semantic_graders=%s",
@@ -145,6 +163,32 @@ async def run_from_args(args: argparse.Namespace) -> int:
         judge_model,
         len(semantic_graders),
     )
+
+    if args.compare_prompts:
+        comparison = await PromptComparisonEvaluator(
+            generation_client=generation_client,
+            semantic_graders=semantic_graders,
+            pairwise_judge=PairwiseSnapshotJudge(judge_client)
+            if judge_client
+            else None,
+            peer_context_mode=args.peer_context,
+        ).run(
+            selected,
+            dataset_version=dataset_version,
+            deterministic_only=args.deterministic_only,
+            runtime_settings={
+                "generation_temperature": settings.ollama_temperature,
+                "judge_temperature": 0.0,
+                "num_ctx": "unchanged model/server default (not explicitly pinned)",
+            },
+        )
+        json_path, markdown_path = write_comparison_report(comparison, args.output)
+        logger.info(
+            "eval.ab.complete cases=%s json_report=%s", len(selected), json_path
+        )
+        print(f"Wrote {json_path}")
+        print(f"Wrote {markdown_path}")
+        return 0
 
     evaluator = StockSnapshotEvaluator(
         generation_client=generation_client,

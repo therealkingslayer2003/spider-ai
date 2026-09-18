@@ -1,4 +1,6 @@
+import json
 from typing import get_args
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,9 +21,11 @@ from evals.asset_snapshot.graders import (
     UnsupportedNumericClaimGrader,
     UnsupportedPeerRelationshipGrader,
 )
+from evals.asset_snapshot.judge import default_semantic_graders
 from evals.asset_snapshot.original_feature_prompt import (
     ASSET_SNAPSHOT_PROMPT as VERBOSE_PROMPT,
 )
+from evals.asset_snapshot.pairwise import _PAIRWISE_RULES
 from tests.test_asset_snapshot_api import SuccessfulAssetSnapshotService
 from tests.test_database import make_snapshot
 
@@ -170,6 +174,29 @@ def test_prompts_share_secondary_knowledge_policy_and_four_type_contract(templat
         assert invariant in prompt
     assert all(kind in prompt for kind in PEER_TYPES)
     assert "peer_landscape" in prompt and "related_entities" in prompt
+
+
+def test_semantic_and_pairwise_judges_use_same_policy_without_more_calls():
+    case = next(c for c in load_dataset() if c.id == "aapl_stable_platform_peers_001")
+    graders = default_semantic_graders(AsyncMock())
+    assert len(graders) == 5
+    for prompt in [g._build_prompt(case, make_snapshot()) for g in graders] + [
+        _PAIRWISE_RULES
+    ]:
+        assert "Do not require these claims to occur literally in fixtures" in prompt
+        assert "overrides\ncontradictory memory" in prompt
+        assert "Model memory cannot supply numerical claims" in prompt
+        assert "direct-competition overclaiming" in prompt
+        assert "related_entities" in prompt
+        assert "Check consistency between peer_type and the explanation" in prompt
+        assert "Do not penalize it solely for being empty" in prompt
+    context = json.loads(
+        graders[0]
+        ._build_prompt(case, make_snapshot())
+        .split("Evaluation context:\n")[1]
+    )
+    assert context["entity_kind"] == "real"
+    assert context["expectations"]["peer_relationship_guidance"]
 
 
 def four_type_case_and_output():
