@@ -14,8 +14,8 @@ driver, and risk expectations were not relaxed to improve scores.
 
 | New case | Evidence | Expected behavior |
 |---|---|---|
-| `amzn_peer_profiles_001` | Target profile, Etsy marketplace profile, identity-only CASY | Acknowledge both; explain Etsy overlap and qualify CASY as a provider peer with unconfirmed overlap |
-| `ma_sparse_peers_001` | MA profile, identity-only V and AXP | Acknowledge both as provider-reported peers with evidence limitations |
+| `amzn_peer_profiles_001` | Target profile, Etsy marketplace profile, identity-only CASY | Explain supported Etsy overlap; CASY can be comparable with reliable retail knowledge, otherwise unclear |
+| `ma_sparse_peers_001` | MA profile, identity-only V and AXP | Acknowledge both; stable payment-network knowledge can support classification despite missing enrichment |
 | `cloudx_unrelated_peer_001` | Software target, nonoverlapping farming profile | Retain the provider-reported peer; do not assert direct competition or invent economic effects |
 
 These three cases are also pending review. They are authored synthetic seeds,
@@ -42,13 +42,25 @@ including those naming real companies, not frozen captures of provider responses
 | `northsea_energy_001` | NorthSea Energy / fictional producer | profile + peers + financials | commodity exposure, reserves, costs and regulation | evaluating the commodity instead of the company | `SYNTHETIC_FINANCIAL_FIXTURE` |
 | `euroauto_industrial_001` | EuroAuto Systems / fictional non-US automation firm | profile + peers + financials | automation demand, order cycles and export exposure | US-only market assumptions | `SYNTHETIC_FINANCIAL_FIXTURE` |
 
+## Peer-landscape policy cases
+
+Both additions remain `pending_manual_review`. Real-company text is authored,
+not captured provider ground truth. Prior case approvals are preserved; cases
+marked `REVIEW_PEER_LANDSCAPE_POLICY` need policy-specific review before adopting
+the revised scores as a baseline.
+
+| Case | Focus | Review |
+|---|---|---|
+| `novapay_peer_types_001` | CARD direct overlap, RAIL indirect substitution, METR broad comparability, ZZZ unclear | Reject automatic direct labels and unsupported risk references; financial numbers are synthetic |
+| `aapl_stable_platform_peers_001` | Compact GOOGL/MSFT profiles omit platform details | Permit reliable iOS/Android and macOS/Windows knowledge, but no current contracts/shares or invented peer identities |
+
 ## Missing-data and fallback cases
 
 | Case | Entity / archetype | Provider availability | Key expectations | Tested mistake | Review flags |
 |---|---|---|---|---|---|
 | `profile_only_saas_001` | CoreDesk / fictional SaaS | profile only | valid grounded output without peers or metrics | treating absent metrics as weak quality | none |
 | `fmp_profile_fallback_001` | RailPay / fictional processor | FMP profile + peers | `fmp_profile_fallback` scope and processor economics | treating fallback as ungrounded | none |
-| `profile_financials_no_peers_001` | StoreGrid / fictional retail tech | profile + financials | metrics used without invented peers | unsupported competitors | `SYNTHETIC_FINANCIAL_FIXTURE` |
+| `profile_financials_no_peers_001` | StoreGrid / fictional retail tech | profile + financials | metrics used without invented peers | unsupported peer relationships | `SYNTHETIC_FINANCIAL_FIXTURE` |
 | `aapl_static_fallback_001` | Apple / real-company static fallback | no provider data | light, stable high-level understanding and no provider claims | precise metrics or current-news claims | `REVIEW_REAL_COMPANY_FACTS` |
 | `nvda_static_fallback_001` | NVIDIA / real-company static fallback | no provider data | light, stable high-level understanding and no provider claims | precise metrics or recent-market claims | `REVIEW_REAL_COMPANY_FACTS` |
 
@@ -60,8 +72,8 @@ including those naming real companies, not frozen captures of provider responses
 | `cloudx_high_leverage_001` | CloudX, high leverage | same profile + changed financials | refinancing/balance-sheet risk becomes material | context-insensitive risks | `SYNTHETIC_FINANCIAL_FIXTURE` |
 | `admesh_high_margin_001` | AdMesh, high operating margin | profile + financials | acknowledge margin buffer/pricing economics | claiming low-margin fragility | `SYNTHETIC_FINANCIAL_FIXTURE` |
 | `admesh_low_margin_001` | AdMesh, low operating margin | same profile + changed financials | margin compression sensitivity rises | context-insensitive economics | `SYNTHETIC_FINANCIAL_FIXTURE` |
-| `novapay_peers_present_001` | NovaPay with supplied peers | profile + peers | competitive landscape stays within supplied set | unsupported competitors | none |
-| `novapay_peers_missing_001` | NovaPay without peers | same profile only | no fabricated provider-backed competitors | memorized or invented peer list | none |
+| `novapay_peers_present_001` | NovaPay with supplied peers | profile + peers | peer landscape stays within supplied set | unsupported peer relationships | none |
+| `novapay_peers_missing_001` | NovaPay without peers | same profile only | no fabricated provider-backed peers | memorized or invented peer list | none |
 
 ## Reviewer attention
 

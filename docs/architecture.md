@@ -98,7 +98,7 @@ selection stays inside tools/providers.
 ```
 
 Response model: `StockAssetSnapshot`, containing `summary`, `business_or_asset_profile`,
-`market_context`, `competitive_landscape`, `structural_drivers`, `structural_risks`,
+`market_context`, `peer_landscape`, `structural_drivers`, `structural_risks`,
 and `data_scope`.
 
 - `POST /api/v1/chat` — main chat endpoint. Expected JSON shape:
@@ -171,8 +171,8 @@ output, and selected providers are not exposed as router-state fields.
 
 Stock state contains stock-specific workflow values such as optional
 `resolved_asset`, normalized `AssetProfileContext`, `CompanyPeersContext`,
-`CompanyFundamentalsContext`, generated prompt, raw LLM output, validated
-output, data scope, and errors.
+`CompanyFundamentalsContext`, generated prompt, the typed `validated_output`,
+data scope, and errors. There is only one snapshot output field in stock state.
 
 Important behavior:
 
@@ -191,8 +191,10 @@ Important behavior:
 - If profile, peers, or fundamentals are missing, the graph continues with
   explicit fallback context.
 - Unsupported asset types fail explicitly and do not execute stock logic.
-- The final LLM output is parsed defensively to tolerate fenced JSON, then
-  validated as `StockAssetSnapshot`.
+- Snapshot generation uses Ollama's JSON-schema mode with `StockAssetSnapshot`
+  in a single call, without application-level retries or repair. The
+  Pydantic object passes directly to finalization for metadata normalization
+  and peer warnings.
 
 ## Market data
 
@@ -213,13 +215,13 @@ composition root creates the shared yfinance provider and includes FMP only when
 it is configured. A configured profile fallback is still selected dynamically
 at request time when the primary provider fails or returns no usable profile.
 
-### Peer evidence and competitive analysis
+### Peer evidence and relationship analysis
 
 `CompanyPeer` holds identity, discovery provider, and an optional nested
 `AssetProfileContext` (`profile`). The nested profile retains its own provider and
 fetch timestamp. It supplies business summary, sector, industry, and other
-normalized company facts. `competition_area`, `why_competitor`, and
-`why_it_matters` belong only to the generated `CompetitivePeer` output; neither
+normalized company facts. `peer_type`, `relationship_area`, and `why_relevant`
+belong only to the generated `PeerRelationship` output; neither
 the provider nor the tool invents those explanations.
 
 Enrichment uses the shared `CompanyProfileTool` result cache, with 10 distinct
@@ -231,27 +233,97 @@ results are not mutated by callers; tools return independent deep copies.
 The timeout bounds awaiting the profile tool; it cannot forcibly stop an already
 running synchronous yfinance request in its worker thread.
 
+### Canonical evidence versus peer prompt projection
+
+```text
+FMP peer identities -> CompanyPeersTool -> CompanyProfileTool enrichment
+  -> full CompanyPeersContext with nested AssetProfileContext
+       -> tool cache / persisted Evidence (unchanged full profiles)
+       -> CompanyPeerPromptProjection -> StockSnapshotPromptBuilder -> LLM
+```
+
+[`company_peer_projection.py`](../app/llm/prompts/company_peer_projection.py)
+defines an internal, immutable prompt-only `CompanyPeerPromptProjection` with
+exactly `ticker`, `name`, `sector`, `industry`, and `business_summary`. Ticker is
+optional to preserve the existing name-only peer contract. It is not a domain
+schema and is never persisted as evidence. All peer entries and their order are
+retained; there is no relevance ranking or competitive reasoning in Python.
+
+Summary compression is deterministic and extractive:
+
+- Normalize whitespace; missing or blank text becomes absent.
+- Text within both `PEER_BUSINESS_SUMMARY_MAX_CHARS = 1_200` and
+  `PEER_BUSINESS_SUMMARY_MAX_SENTENCES = 5` remains unchanged after normalization.
+- Longer text retains up to five complete opening sentences within 1,200
+  characters. The sentence cap also applies to text below the character budget.
+  If the first sentence cannot fit,
+  retain a word-boundary prefix plus `...`, including the ellipsis in the budget.
+- Punctuation boundaries conservatively skip common company suffixes and dotted
+  initials. This is not linguistic summarization; unusual abbreviations can still
+  affect boundaries. A single oversized word yields only `...`, not a partial word.
+
+The compact peer context omits peer exchange, currency, country, website,
+timestamps, and repeated metadata. Discovery provider is identified separately
+from profile provider. A shared profile provider is named once; mixed providers
+are grouped with peer identities. Missing profiles remain identity-only with a
+section-level evidence-limitation instruction. Canonical profile fields, target
+profile rendering (including its existing 1,200-character summary cap), model
+context configuration are unchanged by projection. Peer projection
+does not modify feature instructions; static instruction distillation is a separate
+change documented below.
+
+The builder defaults to `compact`. Its `names_only` and `full` options support
+eval ablation without changing retrieval, evidence, peer count, or graph logic.
+`full` reproduces the previous rendering, including the existing 1,200-character
+per-profile summary cap; it does not mean unbounded vendor text.
+
+At DEBUG level, `snapshot_prompt.peer_context` reports peer count, character count,
+and representation. Native model traces can expose Ollama token-usage metadata;
+structured clients return only the validated model. Character counts cannot
+establish that Ollama processed the entire original prompt.
+
+Before static feature-prompt distillation, a reconstructed nine-peer AAPL example
+using the earlier two-sentence/420-character projection had compact context of
+3,565 characters
+versus 12,046 previously (70.4% reduction); the total prompt fell from 33,518 to
+25,037 characters (25.3%). These are size measurements, not proof of quality gains
+or avoidance of context-window truncation. Opening-only extraction may omit
+important later business segments; assess that tradeoff using the eval ablation.
+
+### Peer interpretation
+
 The provider's list is accepted as provider-reported peers. The prompt asks the
-LLM to acknowledge each distinct identifiable peer in `competitive_landscape`,
+LLM to acknowledge each distinct identifiable peer in `peer_landscape`,
 regardless of enrichment availability. Enrichment helps explain and qualify direct
 competition, indirect competition, or broader comparability; it does not establish
-eligibility for inclusion. The LLM may infer mechanisms from supplied business
-facts, but must not invent peer facts or economic impacts from memory.
+eligibility for inclusion. The LLM assigns `peer_type`: `direct_competitor`,
+`indirect_competitor`, `comparable`, or `unclear`. Provider evidence is the primary
+anchor; high-confidence, widely established, persistent model knowledge can
+supplement it even when profiles are present. It cannot override evidence or
+introduce numerical, recent, obscure, or uncertain company-specific claims.
 
-With sparse or nonoverlapping profiles, the existing string fields explicitly
-attribute inclusion to the provider and explain that direct overlap or impact is
-unconfirmed. A provider-reported peer is not automatically a proven direct rival.
+The LLM interprets target and compact peer profiles, optionally adds permitted stable
+knowledge, classifies the relationship, and explains `relationship_area`,
+`why_relevant`, combining the relationship and its economic significance.
+Broad economic similarity without a
+competitive mechanism supports `comparable`; unreliable support requires `unclear`.
+Missing enrichment does not automatically prohibit stable-knowledge classification.
+No supplier/customer/partner/complementor types exist. A reported peer is not
+automatically a direct rival. `related_entities` must connect to the specific risk
+mechanism, not merely duplicate the landscape.
 This meaningful uncertainty is allowed; bare placeholders are not. Empty output
 is appropriate when no identifiable peers are supplied. `data_scope` still
 describes input availability, not explanation quality. Empty landscapes with
 supplied peers produce a review warning; validation does not fabricate analysis
 or silently rewrite the LLM's analytical output.
 
-New normalized evidence JSON includes the nested peer profiles. The SQLite schema
-and public snapshot response remain unchanged. Existing saved artifacts are not
-rewritten; old evidence without `profile` remains readable as identity-only context,
-and obsolete input explanation keys are ignored by Pydantic. New persisted runs
-use prompt version `stock_snapshot_provider_peers_v1`.
+Normalized evidence JSON still includes the full nested peer profiles. SQLite's
+single `001` migration is unchanged: output is stored as JSON, not field-aware SQL.
+The output contract is intentionally breaking, with no old field aliases. Existing
+legacy snapshot JSON is left untouched and does not deserialize as the new schema;
+regenerate analyses rather than inventing classifications during migration.
+New artifacts use `stock_snapshot_peer_landscape_v4`. See the
+[peer-landscape contract](peer_landscape.md) for compatibility and eval details.
 
 Provider responsibilities:
 
@@ -325,6 +397,48 @@ individual missing metrics: `profile_only`, `profile_with_peers`,
 
 ## Prompting and validation
 
+`BaseChatModelClient.generate()` accepts an optional `response_schema` while
+retaining its string return contract for ordinary text generation. With a schema,
+it returns an instance of that Pydantic model; overloads express this distinction
+to the type checker. Only stock snapshot generation requests `StockAssetSnapshot`;
+chat, ambiguous resolution, and the semantic judge retain text generation.
+
+[`OllamaChatClient`](../app/llm/ollama_client.py) and
+[`EvalOllamaClient`](../evals/asset_snapshot/eval_llm.py) use the direct call:
+
+```python
+structured_model = model.with_structured_output(response_schema)
+snapshot = await structured_model.ainvoke(prompt)
+```
+
+The installed ChatOllama defaults to `method="json_schema"` and `include_raw=False`.
+For a Pydantic schema, it passes `model_json_schema()` as Ollama's response format
+and validates the result through LangChain's Pydantic parser. The application does
+not wrap raw responses, format validation feedback, or retry generation. Parser,
+validation, and transport errors propagate to the existing controlled graph error
+path; cancellation propagates normally. Provider-level schema enforcement does
+not guarantee business-rule compliance or factual accuracy.
+
+Successful Pydantic output is placed directly into `StockSnapshotState.validated_output`.
+There is no separate raw-text or generated-snapshot field in graph state,
+serialization round-trip, or repeated schema validation in the stock graph.
+`validate_stock_snapshot_node`
+finalizes the typed snapshot by copying trusted request/workflow-owned `asset`,
+`asset_type`, and `data_scope` over generated metadata, without mutating the incoming
+object or changing analytical fields. Missing peer tickers are restored only from
+unambiguous supplied/enriched names via `stock/peer_identity.py`; unknown/ambiguous
+matches remain unresolved and are logged. No fuzzy lookup or extra inference is used.
+If workflow scope is absent, the generated scope is retained. The node checks
+whether supplied peers were omitted and logs a
+warning; it does not invent missing analysis, reject the result, or trigger a retry.
+LangChain model traces retain original responses; optional output previews may
+serialize the model only for logging. The API and persistence serialize the final
+model at their existing boundaries. If generation fails, the graph
+records a controlled error and the API follows its existing error handling.
+Schema-valid but analytically weak output is not retried, including
+an empty `peer_landscape` array allowed by the schema. Existing peer
+warnings and eval grading remain responsible for that distinction.
+
 `StockSnapshotPromptBuilder` builds the stock generation prompt from:
 
 - base system prompt
@@ -333,7 +447,7 @@ individual missing metrics: `profile_only`, `profile_with_peers`,
 - explicit fallback context when provider data is unavailable
 
 The LLM is never given raw vendor JSON. It receives clean provider context
-blocks for company profile, competitive context, and optional financial
+blocks for company profile, peer context, and optional financial
 fundamentals. The prompt explicitly makes the business model primary and uses
 financial values only as quantitative evidence for interpreting scale, growth
 or maturity, operating economics, leverage, and financing sensitivity.
@@ -470,9 +584,35 @@ The v1 dataset is synthetic and not ground truth. Every generated case starts as
 Running pending cases requires `--include-pending`, marks the report as
 unreviewed, and must not be used as a regression baseline. Deterministic graders
 cover schema, safety, required content, data scope, supplied numeric facts, and
-closed-set competitors. Independent structured LLM judges score semantic
+closed-set peer identities and valid risk references. Independent LLM judges score semantic
 qualities such as business-model correctness, risk mechanisms, grounding, and
 company specificity without access to current market knowledge.
+
+### Static feature-prompt distillation and A/B evaluation
+
+The earlier static distillation reduced 18,708 to 11,213 characters (40.1%). That
+measurement is historical: both verbose and compact templates now implement the
+new peer-landscape schema and secondary stable-knowledge policy. The
+[compression audit](asset_snapshot_prompt_compression.md) distinguishes the revisions;
+fewer characters do not prove equivalent behavior.
+
+Production `StockSnapshotPromptBuilder` defaults to the distilled template and
+accepts an injected `feature_prompt`. Only evals use that injection to compare the
+verbose reference against the compact template under the same current contract.
+The previous exact prompt can be recovered from Git history. There is no runtime
+compression, production prompt selector, extra generation call, or graph branch.
+Providers, peer projection, `num_ctx`, caching, and persistence stay unchanged.
+The persisted `prompt_version` is `stock_snapshot_peer_landscape_v4`; A/B reports
+additionally record exact prompt hashes.
+
+`PromptComparisonEvaluator` composes two existing frozen evaluators with identical
+fixtures, peer mode and model clients. It records static/dynamic sizes and refuses
+pairwise judging when dynamic context hashes differ. Existing graders score both
+outputs. `PairwiseSnapshotJudge` then compares A/B and B/A against frozen evidence,
+without revealing prompt variants, requiring verifiable quotes from each candidate.
+Agreement maps to original/compressed/tie; order disagreement and execution failures
+remain separate. JSON/Markdown reports retain both complete outputs and per-case
+metrics. See the [eval guide](../evals/README.md#original-vs-compressed-prompt-evaluation).
 
 ## Docker / Runtime
 

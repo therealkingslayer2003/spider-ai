@@ -4,39 +4,57 @@
 production Stock Asset Snapshot workflow. Each line is one independently
 validated `StockSnapshotEvalCase`.
 
-## Peer-profile revision
+## Peer-landscape revision
 
-Reports now identify this revision as `stock_snapshot_v1_provider_peers`; the
-existing JSONL filename is retained. There are 30 cases. The 15 existing cases
-with peers now contain authored factual business profiles instead of prewritten
-competitive explanations. Their original business/risk themes are retained.
-The provider's peer list itself determines expected acknowledgment, regardless of
-profile availability. Curated inclusion/exclusion labels have been removed.
-All changed cases remain `pending_manual_review` with `REVIEW_PROVIDER_PEER_POLICY`.
+The revision is `stock_snapshot_v1_peer_landscape_v2`; the JSONL filename is retained.
+There are 32 cases: 30 previously approved cases and two new pending cases.
+The output contract now uses `peer_landscape`, required four-way `peer_type`,
+`relationship_area`, a combined `why_relevant`, and risk `related_entities`.
+This is an intentional schema/grounding-policy revision, not directly comparable
+with historical competitor-centric scores.
 
-Three new pending cases cover AMZN with an enriched marketplace candidate and a
-missing candidate profile, MA with identity-only peers, and a fictional software
-company with a fully profiled but nonoverlapping agricultural peer. All reported
-peers must remain acknowledged: Etsy gets supported overlap analysis, CASY and the
-sparse MA peers get explicit uncertainty, and FARM gets a qualified provider-peer
-attribution without an invented software-competition mechanism.
-All these profiles are authored fixtures, **not captured vendor responses**.
-Profile timestamps are fixed to keep the added evidence reproducible.
+Input fixtures remain provider facts, not preclassified answers. Existing financial
+values and business/risk themes are retained. `enforce_supplied_peers_only` replaces
+the old competitor-identity switch; it does not prohibit permitted stable knowledge
+about an already supplied peer. `peer_relationship_guidance` provides case-specific
+semantic judging expectations without feeding them to generation or providers.
+Changed expectations carry `REVIEW_PEER_LANDSCAPE_POLICY`; existing approvals are
+preserved, but the revised policy deserves review before adopting a new baseline.
+
+AMZN still requires Etsy/CASY coverage; CASY may be comparable when stable retail
+knowledge is reliable, otherwise unclear. Sparse MA peers may be classified using
+established payment-network knowledge. Fictional FARM has no established economic
+overlap with CloudX: unclear is appropriate, not fabricated software competition.
+Provider membership alone does not prove even broad business similarity.
+
+New pending cases:
+
+- `novapay_peer_types_001`: direct card-network overlap, indirect account-to-account
+  substitution, broadly comparable payment analytics, and an unidentified peer.
+- `aapl_stable_platform_peers_001`: compact GOOGL/MSFT profiles omit mobile/desktop
+  platform details that reliable established knowledge can supply. No numerical or
+  recent relationship claims are licensed by that allowance.
+
+All profiles are authored fixtures, **not captured vendor responses**. New timestamps
+are fixed. Do not interpret plausible real-company text as verified ground truth.
 
 The frozen profile provider serves `peers_fixture.peers[].profile` through the
-same enrichment calls as production. `why_competitor`, `competition_area`, and
-`why_it_matters` contain supported analysis or meaningful evidence limitations,
+same enrichment calls as production. `peer_type`, `why_relevant`, and
+`relationship_area` contain supported analysis or meaningful evidence limitations,
 not prewritten fixture answers or bare placeholders.
 Missing profiles remain missing; evals never call live vendors.
+The merged explanation retains both relationship reasoning and economic significance
+in the semantic rubric. Provider input fixtures and expected economic themes are
+unchanged by this merge; they never contained prewritten explanation-field outputs.
 
 This explicitly replaces the previous fixture contract. Old reports remain
 historical artifacts and their scores are not directly comparable with this
-revision (there are now eight deterministic checks). Human review is required
+revision (there are eight deterministic checks and five semantic graders). Human review is required
 before using the migrated cases as a new baseline.
 
 ## Safety status
 
-Every initial case has:
+Seed cases were originally created with:
 
 ```json
 {
@@ -45,8 +63,8 @@ Every initial case has:
 }
 ```
 
-These cases are not validated financial truth and must not be used to establish
-a baseline until a human reviewer approves them. Numeric values marked
+Current review counts are listed above. Authored fixtures are not validated
+financial truth; unreviewed cases must not establish a baseline. Numeric values marked
 `SYNTHETIC_FINANCIAL_FIXTURE` exist only to test whether the model responds
 consistently to supplied context. Their financial currency and reporting dates
 are also synthetic fixture metadata, not captured provider facts.
@@ -60,9 +78,9 @@ For each case verify:
 
 1. The business archetype is coherent.
 2. Profile fields describe the same business.
-3. Peers are plausible economic comparables or competitors.
+3. Peer classifications follow economic support, not just provider membership.
 4. Synthetic financial values form a plausible shape.
-5. Expectations follow from supplied context.
+5. Expectations respect provider evidence and permitted stable secondary knowledge.
 6. Risk themes are structural rather than current-news claims.
 7. Forbidden claims are genuinely wrong for the fixture.
 8. The case adds distinct benchmark coverage.

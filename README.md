@@ -76,6 +76,7 @@ subgraph is implemented today.
 - Five-hour in-memory TTL caches for normalized tool results
 - Local SQLite persistence for validated Asset Snapshot research artifacts
 - Structured `StockAssetSnapshot` output with profile, drivers, and risks
+- Ollama schema-constrained snapshot generation with a single model call
 - Rich terminal debug logs for workflow and LLM tracing
 - Basic chat endpoint
 - Health endpoint
@@ -161,6 +162,27 @@ Turn on `APP_LOG_LLM_PROMPTS=true` or `APP_LOG_LLM_OUTPUTS=true` when you need
 to inspect the exact prompt/output preview that went through Ollama. Keep them
 off for normal local runs if the payload may contain sensitive user input.
 
+## Structured Snapshot Generation
+
+Stock Asset Snapshot generation calls `with_structured_output(response_schema)`
+with its Pydantic schema, then invokes the structured model once. The installed
+ChatOllama defaults to `method="json_schema"` and `include_raw=False`, passing the
+JSON schema to Ollama and validating the response with Pydantic. There is no
+application-level retry, repair prompt, or raw-response wrapper. Errors follow
+the existing controlled generation-error path. Chat, asset resolution, and eval
+judging keep their existing behavior. Schema enforcement does not establish
+factual accuracy or whether every supplied peer was acknowledged.
+
+Structured generation returns a typed `StockAssetSnapshot` directly into the
+graph's `validated_output`. Finalization sets request/workflow-owned metadata
+(`asset`, `asset_type`, `data_scope`) on a copy, restores missing peer tickers from
+unambiguous supplied identities, and warns if supplied peers were omitted.
+Unknown/ambiguous identity matches are not guessed. There is no intermediate JSON
+string in graph state or repeated JSON
+parsing there.
+The current peer-landscape contract intentionally changes API and stored snapshot
+JSON. See [peer-landscape compatibility](docs/peer_landscape.md#compatibility).
+
 ## Market Data Providers
 
 yfinance is the default free company profile provider. FMP is optional and the
@@ -184,17 +206,41 @@ FMP returns **provider-reported peers**, not necessarily direct competitors.
 `CompanyProfileTool` (yfinance first, configured FMP fallback). Its tool-level
 TTL cache is reused; up to 3 profile lookups run concurrently with a 15-second
 timeout per lookup. Failed or unattempted candidates remain identity-only.
-The LLM compares retrieved business profiles to generate `competition_area`,
-`why_competitor`, and `why_it_matters`; these are analytical conclusions, not
-provider fields. Every distinct identifiable reported peer should be acknowledged
-in `competitive_landscape`, even if enrichment fails. The LLM qualifies direct,
-indirect, or broader relationships only as supported; otherwise it attributes the
-peer to the provider and states that specific overlap or impact is unconfirmed.
+The LLM compares target and compact peer profiles to generate `peer_type`,
+`relationship_area` and `why_relevant`. The latter combines the relationship and
+its structural economic significance in one explanation. These are analytical
+outputs, not provider fields. Every identifiable supplied peer gets one
+`peer_landscape` entry, even without enrichment. `peer_type` is one of
+`direct_competitor`, `indirect_competitor`, `comparable`, or `unclear`.
+Provider evidence is primary. Widely established, high-confidence, structurally
+persistent model knowledge may supplement compact/missing profiles, but never
+override evidence or invent numbers, recent relationships, or obscure facts.
+Broad similarity can support `comparable`; insufficient reliable support calls for
+`unclear`. Risk `related_entities` identify only peers connected to that risk's
+mechanism, not all landscape entries and not necessarily competitors.
 Missing enrichment is not evidence that the provider's peer selection is wrong.
 No economic mechanism is invented just to fill an entry. An empty landscape is
 appropriate when no identifiable peers were supplied. Enriched profiles and their
 provenance are saved in evidence JSON.
-No database schema or public response shape changed.
+SQLite tables and evidence JSON are unchanged; the public snapshot JSON is an
+intentional breaking change with no legacy aliases.
+
+Peer profiles now have a separate, deterministic **prompt projection**: ticker,
+name, sector, industry, and a compact business summary. Summaries normalize
+whitespace and retain up to five opening sentences within a 1,200-character
+budget, or a word-boundary prefix with `...` if the first sentence does not fit.
+Shorter descriptions remain unchanged after whitespace normalization when within
+both limits. No facts are rewritten, no peers are removed, and no extra LLM
+call is made. The target company's existing profile rendering is unchanged.
+Full enriched profiles remain in tool caches and persisted evidence. Discovery
+and profile-provider provenance are identified separately in the prompt.
+
+DEBUG logs expose `snapshot_prompt.peer_context` with peer count, representation,
+and character count. Native model traces can expose Ollama's token-usage metadata;
+the structured client returns only the validated model, not raw response metadata.
+Character counts alone do not guarantee that the prompt fits the model context window.
+The [eval guide](evals/README.md#peer-context-ablation) describes comparisons via
+`--peer-context names_only|compact|full`; production defaults to `compact`.
 
 `CompanyProfileTool`, `CompanyPeersTool`, and `CompanyFundamentalsTool` cache
 successful normalized results for **five hours** in memory. Peer results include
@@ -271,11 +317,11 @@ approves individual cases.
 uv run python -m evals.asset_snapshot.run --validate-only
 
 # Run approved cases only (the default)
-uv run python -m evals.asset_snapshot.run --dataset stock_snapshot_v1
+uv run python -m evals.asset_snapshot.run --dataset stock_snapshot_v1_peer_landscape_v2
 
 # Explicit non-baseline exploration of pending cases
 uv run python -m evals.asset_snapshot.run \
-  --dataset stock_snapshot_v1 \
+  --dataset stock_snapshot_v1_peer_landscape_v2 \
   --include-pending
 ```
 
@@ -284,6 +330,24 @@ See [`evals/README.md`](evals/README.md) and
 for grader behavior, approval steps, and the manual-review checklist. Semantic
 evals use a separately configurable judge model and are never run implicitly by
 the test suite.
+
+Compare the verbose reference feature prompt with the statically compressed prompt
+on the same frozen cases, using existing graders plus blinded two-order pairwise
+judging (tie allowed):
+
+```bash
+uv run python -m evals.asset_snapshot.run --compare-prompts \
+  --case amzn_peer_profiles_001 --case ma_sparse_peers_001
+```
+
+Add `--pairwise-only` to skip individual semantic graders, or
+`--deterministic-only` to skip all judges. Both still generate two snapshots per
+case. Reports include full outputs, per-case scores, exact judge quotes, prompt
+sizes, and settings. Both prompt variants now use the same peer-landscape schema
+and stable-knowledge policy; the earlier 40.1% compression measurement belongs to
+the previous contract. Smaller prompts alone do not prove quality improvement. See the
+[coverage audit](docs/asset_snapshot_prompt_compression.md) and
+[A/B guide](evals/README.md#original-vs-compressed-prompt-evaluation).
 
 ## API Endpoints
 
