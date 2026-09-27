@@ -17,6 +17,7 @@ from app.llm.prompts.feature_snapshot_prompt_builder import StockSnapshotPromptB
 from app.market_data.fmp_provider import FmpProvider
 from app.market_data.yfinance_provider import YFinanceCompanyProfileProvider
 from app.services.asset_snapshot_service import AssetSnapshotService
+from app.services.asset_thesis_service import AssetThesisService
 from app.services.chat_service import ChatService
 from app.services.snapshot_artifact_persistence_service import (
     SnapshotArtifactPersistenceService,
@@ -133,3 +134,7 @@ def get_asset_snapshot_service(
         graph_runner=graph_runner,
         persistence_service=persistence_service,
     )
+
+
+def get_asset_thesis_service() -> AssetThesisService:
+    return AssetThesisService()

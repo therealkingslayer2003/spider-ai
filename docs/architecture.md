@@ -111,6 +111,11 @@ Response model: `{ "answer": "<text>", "model": "<model-name>" }`.
 
 Note: `/chat` without the `/api/v1` prefix will return 404. The chat endpoint expects `POST`, not `GET`.
 
+Thesis Mode has a standalone schema/API/service skeleton at
+`POST /api/v1/asset/thesis`, which deliberately returns 501 until research
+execution is implemented. See [Thesis Mode v1](thesis_mode_v1.md) for the contract,
+Snapshot component mapping, bounded data scope, and future orchestration.
+
 ## Asset Snapshot workflow
 
 External code calls only `AssetSnapshotService`, which delegates to

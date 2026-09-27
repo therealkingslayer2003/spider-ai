@@ -11,6 +11,10 @@ class ServiceError(Exception):
     """Raised for unrecoverable service-layer errors."""
 
 
+class AssetThesisNotImplementedError(NotImplementedError):
+    """Thesis execution is unavailable, not a research conclusion or failed run."""
+
+
 class UnsupportedAssetTypeError(Exception):
     def __init__(self, asset_type: AssetType) -> None:
         self.asset_type = asset_type
