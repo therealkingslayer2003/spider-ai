@@ -33,9 +33,10 @@ This skeleton supplies no financial defaults or configuration.
 | `/asset/snapshot` in the v1 router | `/asset/thesis` in the same route family |
 
 The asynchronous service now delegates to an injected `AssetThesisGraphRunner`,
-matching Snapshot's service/runner dependency chain. The `AssetThesisGraph` is
-currently a shell with no compiled workflow; it raises
-`AssetThesisNotImplementedError`, which only the endpoint translates to HTTP.
+matching Snapshot's service/runner dependency chain. `AssetThesisGraph` now
+compiles the parent topology. Its child graph boundaries and remaining analysis
+nodes still raise `AssetThesisNotImplementedError`, which only the endpoint
+translates to HTTP.
 Importing/registering the endpoint and resolving its dependency do not construct
 external clients. Existing application startup still initializes the shared
 local SQLite database. Thesis client integrations and persistence remain future

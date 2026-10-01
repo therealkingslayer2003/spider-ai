@@ -1,10 +1,13 @@
 """Synthetic contract examples only; no research, pricing, or valuation execution."""
 
+import asyncio
 import subprocess
 import sys
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -13,6 +16,12 @@ from pydantic import ValidationError
 
 from app.agents.asset_thesis.graph import AssetThesisGraph
 from app.agents.asset_thesis.runner import AssetThesisGraphRunner
+from app.agents.asset_thesis.state import PreparedThesisData
+from app.agents.asset_thesis.subgraphs import (
+    ThesisAssetOverviewGraph,
+    ThesisCatalystsGraph,
+    ThesisDataPreparationGraph,
+)
 from app.api.dependencies import (
     get_asset_thesis_graph,
     get_asset_thesis_graph_runner,
@@ -199,6 +208,19 @@ def thesis_payload(assumptions_payload):
             },
         ],
     }
+
+
+@pytest.fixture
+def prepared_data(thesis_payload):
+    return PreparedThesisData.model_validate(
+        {
+            "filings_index": {"artifact_id": "filings", "version": "v1"},
+            "financials": {"artifact_id": "facts", "version": "v1"},
+            "quote": {"artifact_id": "quote", "version": "v1"},
+            "coverage": thesis_payload["data_coverage"],
+            "data_gaps": ["Two historical years are missing."],
+        }
+    )
 
 
 def snapshot_context(asset="EXAMPLE"):
@@ -459,6 +481,207 @@ async def test_thesis_service_propagates_runner_failure():
         await service.get_thesis(
             AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
         )
+
+
+@pytest.mark.asyncio
+async def test_parent_initialization_freezes_research_identity_and_time():
+    graph = AssetThesisGraph()
+    request = AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+
+    first = await graph.initialize_research({"request": request})
+    second = await graph.initialize_research({"request": request, **first})
+
+    assert first == second
+    assert first["asset"] == "EXAMPLE"
+    assert UUID(hex=first["research_id"]).hex == first["research_id"]
+    assert first["as_of"].tzinfo is not None
+    assert first["as_of"].utcoffset() == datetime.now(UTC).utcoffset()
+
+
+@pytest.mark.parametrize(
+    "partial_state",
+    [
+        {"research_id": "existing"},
+        {"as_of": datetime(2026, 10, 1, tzinfo=UTC)},
+        {"research_id": "existing", "as_of": datetime(2026, 10, 1)},
+        {"research_id": "  ", "as_of": datetime(2026, 10, 1, tzinfo=UTC)},
+    ],
+)
+@pytest.mark.asyncio
+async def test_parent_initialization_rejects_incomplete_or_naive_resume(partial_state):
+    graph = AssetThesisGraph()
+    request = AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+
+    with pytest.raises(ServiceError):
+        await graph.initialize_research({"request": request, **partial_state})
+
+
+@pytest.mark.parametrize("with_snapshot", [False, True])
+@pytest.mark.asyncio
+async def test_subgraph_wrappers_project_only_required_inputs_and_selected_outputs(
+    thesis_payload, prepared_data, with_snapshot
+):
+    thesis = StockAssetThesis.model_validate(thesis_payload)
+    preparation = AsyncMock(spec=ThesisDataPreparationGraph)
+    overview = AsyncMock(spec=ThesisAssetOverviewGraph)
+    catalysts = AsyncMock(spec=ThesisCatalystsGraph)
+    preparation.ainvoke.return_value = {
+        "prepared_data": prepared_data,
+        "internal_chunks": ["not parent state"],
+    }
+    overview.ainvoke.return_value = {
+        "result": thesis.asset_overview,
+        "internal_passages": ["not parent state"],
+    }
+    catalysts.ainvoke.return_value = {"result": [], "internal_passages": []}
+    graph = AssetThesisGraph(
+        data_preparation=preparation,
+        asset_overview=overview,
+        catalysts=catalysts,
+    )
+    payload = {"asset": "EXAMPLE", "asset_type": "stock"}
+    if with_snapshot:
+        payload["snapshot_context"] = snapshot_context()
+    request = AssetThesisRequest.model_validate(payload)
+    state = {
+        "request": request,
+        **await graph.initialize_research({"request": request}),
+    }
+
+    preparation_update = await graph.prepare_data(state)
+    preparation.ainvoke.assert_awaited_once_with(
+        {
+            "asset": "EXAMPLE",
+            "research_id": state["research_id"],
+            "as_of": state["as_of"],
+        }
+    )
+    assert preparation_update == {"prepared_data": prepared_data}
+
+    state.update(preparation_update)
+    overview_update = await graph.run_asset_overview(state)
+    expected_overview_input = {
+        "asset": "EXAMPLE",
+        "as_of": state["as_of"],
+        "prepared_data": prepared_data,
+    }
+    if with_snapshot:
+        expected_overview_input["snapshot_context"] = request.snapshot_context
+    overview.ainvoke.assert_awaited_once_with(expected_overview_input)
+    assert overview_update == {"asset_overview": thesis.asset_overview}
+
+    catalyst_update = await graph.run_current_catalysts(state)
+    catalysts.ainvoke.assert_awaited_once_with(
+        {
+            "asset": "EXAMPLE",
+            "as_of": state["as_of"],
+            "prepared_data": prepared_data,
+        }
+    )
+    assert catalyst_update == {"current_catalysts": []}
+
+
+@pytest.mark.parametrize("stage", ["preparation", "overview", "catalysts"])
+@pytest.mark.asyncio
+async def test_subgraph_wrappers_reject_missing_results(stage, prepared_data):
+    preparation = AsyncMock(spec=ThesisDataPreparationGraph)
+    overview = AsyncMock(spec=ThesisAssetOverviewGraph)
+    catalysts = AsyncMock(spec=ThesisCatalystsGraph)
+    preparation.ainvoke.return_value = {}
+    overview.ainvoke.return_value = {}
+    catalysts.ainvoke.return_value = {}
+    graph = AssetThesisGraph(
+        data_preparation=preparation,
+        asset_overview=overview,
+        catalysts=catalysts,
+    )
+    request = AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+    state = {
+        "request": request,
+        "asset": request.asset,
+        "research_id": "research-1",
+        "as_of": datetime(2026, 10, 1, tzinfo=UTC),
+        "prepared_data": prepared_data,
+    }
+    node = {
+        "preparation": graph.prepare_data,
+        "overview": graph.run_asset_overview,
+        "catalysts": graph.run_current_catalysts,
+    }[stage]
+
+    with pytest.raises(ServiceError, match="produced no valid result"):
+        await node(state)
+
+
+@pytest.mark.asyncio
+async def test_parent_graph_joins_all_analysis_branches_once(
+    thesis_payload, prepared_data
+):
+    thesis = StockAssetThesis.model_validate(thesis_payload)
+    preparation = AsyncMock(spec=ThesisDataPreparationGraph)
+    overview = AsyncMock(spec=ThesisAssetOverviewGraph)
+    catalysts = AsyncMock(spec=ThesisCatalystsGraph)
+    preparation.ainvoke.return_value = {"prepared_data": prepared_data}
+    overview.ainvoke.return_value = {"result": thesis.asset_overview}
+    catalyst_started = asyncio.Event()
+    release_catalysts = asyncio.Event()
+    valuation_finished = asyncio.Event()
+    risk_calls = []
+
+    async def delayed_catalysts(_state):
+        catalyst_started.set()
+        await release_catalysts.wait()
+        return {"result": []}
+
+    catalysts.ainvoke.side_effect = delayed_catalysts
+
+    class CompletedGraph(AssetThesisGraph):
+        async def valuation(self, state):
+            assert state["prepared_data"] is prepared_data
+            valuation_finished.set()
+            return {"valuation": thesis.valuation}
+
+        async def thesis_risks_and_invalidation(self, state):
+            assert state["asset_overview"] is thesis.asset_overview
+            assert state["valuation"] is thesis.valuation
+            assert state["current_catalysts"] == []
+            risk_calls.append(1)
+            return {
+                "thesis_risks_and_invalidation": thesis.thesis_risks_and_invalidation
+            }
+
+        async def short_thesis_overview(self, state):
+            assert len(risk_calls) == 1
+            return {"short_thesis_overview": thesis.short_thesis_overview}
+
+        async def assemble_and_validate(self, state):
+            assert state["short_thesis_overview"] is thesis.short_thesis_overview
+            return {"final_response": thesis}
+
+        async def persist_thesis(self, state):
+            assert state["final_response"] is thesis
+            return {"final_response": thesis}
+
+    graph = CompletedGraph(
+        data_preparation=preparation,
+        asset_overview=overview,
+        catalysts=catalysts,
+    )
+    request = AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+    execution = asyncio.create_task(graph.ainvoke({"request": request}))
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(catalyst_started.wait(), valuation_finished.wait()),
+            timeout=5,
+        )
+        assert risk_calls == []
+    finally:
+        release_catalysts.set()
+    final_state = await asyncio.wait_for(execution, timeout=5)
+
+    assert risk_calls == [1]
+    assert final_state["final_response"] is thesis
+    assert final_state["prepared_data"] is prepared_data
 
 
 def test_import_registration_openapi_and_501_without_clients():
