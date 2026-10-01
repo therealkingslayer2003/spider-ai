@@ -11,7 +11,13 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.api.dependencies import get_asset_thesis_service
+from app.agents.asset_thesis.graph import AssetThesisGraph
+from app.agents.asset_thesis.runner import AssetThesisGraphRunner
+from app.api.dependencies import (
+    get_asset_thesis_graph,
+    get_asset_thesis_graph_runner,
+    get_asset_thesis_service,
+)
 from app.core.exceptions import AssetThesisNotImplementedError, ServiceError
 from app.domain.schemas.asset_snapshot import AssetSnapshotRequest
 from app.domain.schemas.asset_thesis import (
@@ -125,7 +131,10 @@ def thesis_payload(assumptions_payload):
                     "evidence_ids": ["fact-2025-revenue"],
                 }
             ],
-            "assumptions": {"origin": "user_input", "values": assumptions_payload},
+            "assumptions": {
+                "config_version": "synthetic-policy-v1",
+                "values": assumptions_payload,
+            },
             "reference_price": {
                 "value": 10,
                 "as_of": "2026-09-25T20:00:00Z",
@@ -211,7 +220,7 @@ def test_request_matches_snapshot_normalization_and_is_standalone():
     request = AssetThesisRequest.model_validate(payload)
     assert request.asset == AssetSnapshotRequest.model_validate(payload).asset == "NVDA"
     assert request.snapshot_context is None
-    assert request.assumptions is None
+    assert "assumptions" not in AssetThesisRequest.model_fields
 
 
 @pytest.mark.parametrize("asset", ["", "   ", "A" * 33, None, 123])
@@ -220,23 +229,32 @@ def test_request_rejects_invalid_asset(asset):
         AssetThesisRequest.model_validate({"asset": asset, "asset_type": "stock"})
 
 
-def test_optional_snapshot_and_user_assumptions(assumptions_payload):
+def test_optional_snapshot_is_same_asset_context():
     request = AssetThesisRequest.model_validate(
         {
             "asset": " example ",
             "asset_type": "stock",
             "snapshot_context": snapshot_context(),
-            "assumptions": assumptions_payload,
         }
     )
     assert request.snapshot_context.asset == request.asset
-    assert request.assumptions.discount_rate == 0.10
     with pytest.raises(ValidationError, match="requested stock"):
         AssetThesisRequest.model_validate(
             {
                 "asset": "OTHER",
                 "asset_type": "stock",
                 "snapshot_context": snapshot_context(),
+            }
+        )
+
+
+def test_request_rejects_caller_supplied_dcf_assumptions(assumptions_payload):
+    with pytest.raises(ValidationError, match="assumptions"):
+        AssetThesisRequest.model_validate(
+            {
+                "asset": "EXAMPLE",
+                "asset_type": "stock",
+                "assumptions": assumptions_payload,
             }
         )
 
@@ -308,10 +326,8 @@ def test_missing_assumptions_require_an_explanation(thesis_payload):
 
 def test_fixed_dcf_and_versioned_assumptions(assumptions_payload):
     with pytest.raises(ValidationError, match="config_version"):
-        DcfAssumptionBasis(origin="versioned_config", values=assumptions_payload)
-    basis = DcfAssumptionBasis(
-        origin="versioned_config", config_version="test-v1", values=assumptions_payload
-    )
+        DcfAssumptionBasis.model_validate({"values": assumptions_payload})
+    basis = DcfAssumptionBasis(config_version="test-v1", values=assumptions_payload)
     assert basis.config_version == "test-v1"
     assumptions_payload["terminal_growth_rate"] = 0.10
     with pytest.raises(ValidationError, match="below"):
@@ -368,13 +384,81 @@ def test_available_price_requires_timestamp_and_source(thesis_payload, changes):
 
 @pytest.mark.asyncio
 async def test_service_signals_unimplemented_without_http_or_research_output():
-    service = get_asset_thesis_service()
+    graph = get_asset_thesis_graph()
+    runner = get_asset_thesis_graph_runner(thesis_graph=graph)
+    service = get_asset_thesis_service(graph_runner=runner)
     assert isinstance(service, AssetThesisService)
     with pytest.raises(AssetThesisNotImplementedError) as caught:
         await service.get_thesis(
             AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
         )
     assert not isinstance(caught.value, (HTTPException, ServiceError))
+
+
+def test_thesis_dependency_chain_injects_graph_into_runner_and_service():
+    graph = get_asset_thesis_graph()
+    runner = get_asset_thesis_graph_runner(thesis_graph=graph)
+    service = get_asset_thesis_service(graph_runner=runner)
+
+    assert isinstance(graph, AssetThesisGraph)
+    assert isinstance(runner, AssetThesisGraphRunner)
+    assert runner._thesis_graph is graph
+    assert service.graph_runner is runner
+
+
+@pytest.mark.asyncio
+async def test_thesis_runner_passes_request_state_and_returns_validated_response(
+    thesis_payload,
+):
+    request = AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+    thesis = StockAssetThesis.model_validate(thesis_payload)
+    graph = AsyncMock(spec=AssetThesisGraph)
+    graph.ainvoke.return_value = {"request": request, "final_response": thesis}
+    runner = AssetThesisGraphRunner(thesis_graph=graph)
+
+    result = await runner.run(request)
+
+    graph.ainvoke.assert_awaited_once_with({"request": request})
+    assert result is thesis
+
+
+@pytest.mark.parametrize(
+    "final_state", [{}, {"final_response": None, "error": "failed"}]
+)
+@pytest.mark.asyncio
+async def test_thesis_runner_rejects_completed_state_without_response(final_state):
+    graph = AsyncMock(spec=AssetThesisGraph)
+    graph.ainvoke.return_value = final_state
+    runner = AssetThesisGraphRunner(thesis_graph=graph)
+
+    with pytest.raises(ServiceError, match="Asset thesis generation failed"):
+        await runner.run(AssetThesisRequest(asset="EXAMPLE", asset_type="stock"))
+
+
+@pytest.mark.asyncio
+async def test_thesis_service_delegates_request_to_runner(thesis_payload):
+    request = AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+    thesis = StockAssetThesis.model_validate(thesis_payload)
+    runner = AsyncMock(spec=AssetThesisGraphRunner)
+    runner.run.return_value = thesis
+    service = AssetThesisService(graph_runner=runner)
+
+    result = await service.get_thesis(request)
+
+    runner.run.assert_awaited_once_with(request)
+    assert result is thesis
+
+
+@pytest.mark.asyncio
+async def test_thesis_service_propagates_runner_failure():
+    runner = AsyncMock(spec=AssetThesisGraphRunner)
+    runner.run.side_effect = ServiceError("Research failed.")
+    service = AssetThesisService(graph_runner=runner)
+
+    with pytest.raises(ServiceError, match="Research failed"):
+        await service.get_thesis(
+            AssetThesisRequest(asset="EXAMPLE", asset_type="stock")
+        )
 
 
 def test_import_registration_openapi_and_501_without_clients():
@@ -428,6 +512,7 @@ with ExitStack() as stack:
         {"asset": "X" * 33, "asset_type": "stock"},
         {"asset": "SPY", "asset_type": "etf"},
         {"asset": "BTC", "asset_type": "crypto"},
+        {"asset": "EXAMPLE", "asset_type": "stock", "assumptions": {}},
     ],
 )
 def test_endpoint_rejects_invalid_requests_before_service_call(payload):

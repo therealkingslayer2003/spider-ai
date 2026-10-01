@@ -6,6 +6,7 @@ from typing import Annotated, Literal, Self
 from pydantic import (
     AwareDatetime,
     BaseModel,
+    ConfigDict,
     Field,
     FiniteFloat,
     StringConstraints,
@@ -203,15 +204,10 @@ class DcfAssumptions(BaseModel):
 
 
 class DcfAssumptionBasis(BaseModel):
-    origin: Literal["user_input", "versioned_config"]
-    config_version: Text | None = None
+    config_version: Text = Field(
+        description="Policy version used to derive forecasts and select DCF parameters."
+    )
     values: DcfAssumptions
-
-    @model_validator(mode="after")
-    def validate_config_version(self) -> Self:
-        if (self.origin == "versioned_config") != (self.config_version is not None):
-            raise ValueError("config_version is required only for versioned_config.")
-        return self
 
 
 class ThesisReferencePrice(FinancialValue):
@@ -360,6 +356,8 @@ class StockAssetThesis(BaseModel):
 
 
 class AssetThesisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     asset: str = Field(
         ...,
         min_length=1,
@@ -368,10 +366,6 @@ class AssetThesisRequest(BaseModel):
         examples=["NVDA"],
     )
     asset_type: Literal[AssetType.STOCK] = Field(..., examples=[AssetType.STOCK])
-    assumptions: DcfAssumptions | None = Field(
-        default=None,
-        description="User inputs; otherwise execution will use versioned config.",
-    )
     snapshot_context: StockAssetSnapshot | None = Field(
         default=None,
         description="Optional same-asset background; not required or primary evidence.",

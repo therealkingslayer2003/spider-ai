@@ -14,9 +14,10 @@ The asset is stripped and uppercased, with Snapshot's 1–32 character limit.
 Only `stock` is accepted. Company eligibility cannot be verified until research
 execution exists. `snapshot_context` optionally accepts a same-asset
 `StockAssetSnapshot`; it is background, never a prerequisite or primary evidence.
-It does not alter the response contract. Optional `assumptions` supplies a full
-explicit user DCF assumption set; omission will eventually select versioned
-configuration. This skeleton supplies no financial defaults or configuration.
+It does not alter the response contract. The request has no DCF assumption
+field: the workflow will derive forecast assumptions from prepared financials
+under versioned rules and select policy parameters from versioned configuration.
+This skeleton supplies no financial defaults or configuration.
 
 ## Mapping to Snapshot
 
@@ -26,15 +27,19 @@ configuration. This skeleton supplies no financial defaults or configuration.
 | `AssetSnapshotRequest` | `AssetThesisRequest` |
 | `app/api/v1/endpoints/asset_snapshot.py` / module `router` | `app/api/v1/endpoints/asset_thesis.py` / module `router` |
 | `AssetSnapshotService.get_snapshot` | `AssetThesisService.get_thesis` |
+| `AssetSnapshotGraphRunner` | `AssetThesisGraphRunner` |
+| `AssetSnapshotRouterGraph` | `AssetThesisGraph` shell |
 | `get_asset_snapshot_service` in `app/api/dependencies.py` | `get_asset_thesis_service` in the same composition root |
 | `/asset/snapshot` in the v1 router | `/asset/thesis` in the same route family |
 
-The asynchronous service method is the future orchestration extension point.
-There is no placeholder graph, runner hierarchy, client, or persistence layer.
-Its dedicated `AssetThesisNotImplementedError` is translated to HTTP only by the
-endpoint. Importing/registering the endpoint and resolving its dependency do not
-construct external clients. Existing application startup still initializes the
-shared local SQLite database.
+The asynchronous service now delegates to an injected `AssetThesisGraphRunner`,
+matching Snapshot's service/runner dependency chain. The `AssetThesisGraph` is
+currently a shell with no compiled workflow; it raises
+`AssetThesisNotImplementedError`, which only the endpoint translates to HTTP.
+Importing/registering the endpoint and resolving its dependency do not construct
+external clients. Existing application startup still initializes the shared
+local SQLite database. Thesis client integrations and persistence remain future
+work.
 
 ## Response contract
 
@@ -59,8 +64,9 @@ and Python-calculated outputs. Rates and ratios are decimals (`0.10` is 10%);
 amounts are unscaled USD, share counts are shares, and per-share values are USD
 per share. Positive capex and incremental working capital consume cash. Forecast
 assumptions are ordered years 1–5, followed by terminal growth below the explicit
-annual discount rate (WACC). Assumption provenance is either user input or an
-identified configuration version. No assumptions or WACC are inferred by an LLM.
+annual discount rate (WACC). Assumption provenance records the policy version
+that produced them. WACC and terminal growth require configured values; an LLM
+does not invent assumptions or calculate the DCF.
 
 Every missing numeric value must be `null` with a nonblank `unavailable_reason`;
 zero is an actual value. The same applies to unavailable forecasts, terminal

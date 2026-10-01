@@ -1,4 +1,4 @@
-from app.core.exceptions import AssetThesisNotImplementedError
+from app.agents.asset_thesis.runner import AssetThesisGraphRunner
 from app.domain.schemas.asset_thesis import AssetThesisRequest, StockAssetThesis
 
 
@@ -11,11 +11,12 @@ class AssetThesisService:
     Overview, assemble sources, and validate the response. There is no separate
     Risk Discovery stage or mandatory reconciliation/recalculation loop.
 
-    Add the runner dependency here when execution is implemented; the skeleton
-    needs no graph, external clients, persistence, or Snapshot execution.
+    The runner provides the parent graph boundary. Research execution remains
+    unimplemented until its nodes are added.
     """
 
+    def __init__(self, graph_runner: AssetThesisGraphRunner) -> None:
+        self.graph_runner = graph_runner
+
     async def get_thesis(self, request: AssetThesisRequest) -> StockAssetThesis:
-        raise AssetThesisNotImplementedError(
-            "Asset thesis research is not implemented yet."
-        )
+        return await self.graph_runner.run(request)

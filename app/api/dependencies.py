@@ -10,6 +10,8 @@ from app.agents.asset_snapshot.tools import (
     CompanyPeersTool,
     CompanyProfileTool,
 )
+from app.agents.asset_thesis.graph import AssetThesisGraph
+from app.agents.asset_thesis.runner import AssetThesisGraphRunner
 from app.core.config import get_settings
 from app.infrastructure.db.database import Database
 from app.llm.ollama_client import OllamaChatClient
@@ -136,5 +138,17 @@ def get_asset_snapshot_service(
     )
 
 
-def get_asset_thesis_service() -> AssetThesisService:
-    return AssetThesisService()
+def get_asset_thesis_graph() -> AssetThesisGraph:
+    return AssetThesisGraph()
+
+
+def get_asset_thesis_graph_runner(
+    thesis_graph: AssetThesisGraph = Depends(get_asset_thesis_graph),
+) -> AssetThesisGraphRunner:
+    return AssetThesisGraphRunner(thesis_graph=thesis_graph)
+
+
+def get_asset_thesis_service(
+    graph_runner: AssetThesisGraphRunner = Depends(get_asset_thesis_graph_runner),
+) -> AssetThesisService:
+    return AssetThesisService(graph_runner=graph_runner)
