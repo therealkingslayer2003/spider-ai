@@ -6,7 +6,7 @@ Spider-AI is a local-first asset market research copilot. Snapshot explains busi
 
 ## Architecture
 
-Use vertical feature packages with shared infrastructure. HTTP endpoints call services, services invoke graph runners, and runners expose typed results. Snapshot's router selects the stock subgraph; its nodes coordinate capability tools and LLM generation. The service then persists validated output and evidence. Chat calls the LLM through its service directly.
+Use vertical feature packages with shared infrastructure. HTTP endpoints call services, services invoke graph runners, and runners expose typed results. Graph routers have subgraphs; their nodes coordinate capability tools and LLM generation. The service then persists validated output and evidence. Chat calls the LLM through its service directly.
 
 | Location | Responsibility |
 | --- | --- |
