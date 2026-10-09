@@ -10,7 +10,10 @@ primary HTML document and multiple exhibit documents, each with its own ID,
 filename, source URL, and content version. `published_at` records when the
 document became available; `report_period_end` is separate and optional. A
 corpus manifest selects document versions at one `as_of` and is reusable across
-research runs. Evidence excerpts carry the source locator needed for citations.
+research runs. A retrieved evidence bundle references the selected corpus and
+index together through `FilingCorpusVersion`; the manifest permits a missing
+index version while preparation is incomplete. Evidence excerpts carry the
+source locator needed for citations.
 
 `app/agents/asset_thesis/rag/capabilities.py` defines the ports for parsing,
 splitting, embeddings, raw-file storage, SQL metadata, and vector indexing.

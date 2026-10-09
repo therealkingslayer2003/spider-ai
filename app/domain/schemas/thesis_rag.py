@@ -76,6 +76,11 @@ class FilingCorpusManifest(BaseModel):
     status: Literal["selected", "indexing", "ready", "failed"]
 
 
+class FilingCorpusVersion(BaseModel):
+    corpus_id: Text
+    index_version: Text
+
+
 class FilingEvidenceSource(BaseModel):
     document: FilingDocumentVersion
     accession_number: Text
@@ -102,6 +107,5 @@ class FilingVectorMatch(BaseModel):
 
 class FilingEvidenceBundle(BaseModel):
     query: Text
-    corpus_id: Text
-    index_version: Text
+    corpus: FilingCorpusVersion
     excerpts: list[FilingEvidenceExcerpt]
