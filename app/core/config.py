@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     fmp_enabled: bool = False
     fmp_api_key: str | None = None
     fmp_base_url: str = "https://financialmodelingprep.com/stable"
+    sec_user_agent: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

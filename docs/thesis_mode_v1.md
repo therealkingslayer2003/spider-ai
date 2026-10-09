@@ -39,8 +39,9 @@ nodes still raise `AssetThesisNotImplementedError`, which only the endpoint
 translates to HTTP.
 Importing/registering the endpoint and resolving its dependency do not construct
 external clients. Existing application startup still initializes the shared
-local SQLite database. Thesis client integrations and persistence remain future
-work.
+local SQLite database. An SEC EDGAR client adapter exists but is not wired into
+Thesis execution. Ingestion, other client integrations, and persistence remain
+future work.
 
 ## Response contract
 
