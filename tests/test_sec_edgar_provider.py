@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 
 from app.market_data.sec_edgar_provider import (
@@ -67,3 +68,31 @@ async def test_exhibit_index_finds_prefixed_html_files():
     )
     assert len(urls) == 1
     assert urls[0].endswith("/d123ex991.htm")
+
+
+@pytest.mark.asyncio
+async def test_document_keeps_original_response_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = b"<html>non-UTF8 \xff</html>"
+
+    class OfflineHttpClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url: str):
+            return httpx.Response(200, request=httpx.Request("GET", url), content=raw)
+
+    monkeypatch.setattr(httpx, "AsyncClient", OfflineHttpClient)
+    assert (
+        await SecEdgarClient("Research contact@example.com").document(
+            "https://www.sec.gov/test.htm"
+        )
+        == raw
+    )

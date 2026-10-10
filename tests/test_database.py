@@ -160,11 +160,16 @@ async def test_database_initialization_creates_file_schema_and_pragmas(
             "research_artifact",
             "evidence",
             "snapshot_research_artifact",
+            "filing_document_version",
+            "filing_chunk",
+            "filing_corpus",
+            "filing_corpus_document",
+            "filing_corpus_chunk",
         } <= tables
         assert foreign_keys == 1
         assert str(journal_mode).lower() == "wal"
         assert busy_timeout == 5000
-        assert applied_migrations == 1
+        assert applied_migrations == 2
         assert "ix_research_artifact_asset_created_at" in indexes
         assert "ix_evidence_asset_created_at" in indexes
     finally:

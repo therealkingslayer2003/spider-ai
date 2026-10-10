@@ -39,9 +39,10 @@ nodes still raise `AssetThesisNotImplementedError`, which only the endpoint
 translates to HTTP.
 Importing/registering the endpoint and resolving its dependency do not construct
 external clients. Existing application startup still initializes the shared
-local SQLite database. An SEC EDGAR client adapter exists but is not wired into
-Thesis execution. Ingestion, other client integrations, and persistence remain
-future work.
+local SQLite database. An SEC EDGAR client and reusable filing storage adapters
+(raw HTML, SQL metadata, and Chroma vectors) exist but are not wired into Thesis
+execution. Filing parsing, embeddings, ingestion coordination, retrieval, and
+Thesis artifact persistence remain future work.
 
 ## Response contract
 
@@ -103,5 +104,6 @@ or universal IR/PDF crawler.
 Python will calculate valuation/sensitivity; LLMs will explain evidence and
 uncertainties. There is no separate Risk Discovery stage or mandatory
 reconciliation/recalculation loop. Ingestion, retrieval, embeddings, prompts,
-DCF calculation, persistence, migrations, checkpointing and an executable
-LangGraph workflow are intentionally unimplemented.
+DCF calculation, Thesis artifact persistence, checkpointing and an executable
+LangGraph workflow are intentionally unimplemented. Filing-storage migration
+`002` exists independently of those workflow stages.

@@ -46,6 +46,16 @@ class FilingMetadataRepository(Protocol):
 
     async def get_manifest(self, corpus_id: str) -> FilingCorpusManifest | None: ...
 
+    async def get_ready_manifest(
+        self, corpus_id: str
+    ) -> FilingCorpusManifest | None: ...
+
+    async def mark_ready(
+        self, corpus_id: str, chunk_ids: Sequence[str]
+    ) -> FilingCorpusManifest: ...
+
+    async def get_indexed_chunk_ids(self, corpus_id: str) -> list[str]: ...
+
     async def get_document(
         self, version: FilingDocumentVersion
     ) -> FilingDocument | None: ...
@@ -59,6 +69,16 @@ class FilingVectorIndex(Protocol):
         corpus: FilingCorpusManifest,
         vectors: Mapping[str, Sequence[float]],
     ) -> None: ...
+
+    async def contains_exactly(
+        self, corpus: FilingCorpusManifest, chunk_ids: Sequence[str]
+    ) -> bool: ...
+
+    async def matches_vectors(
+        self,
+        corpus: FilingCorpusManifest,
+        vectors: Mapping[str, Sequence[float]],
+    ) -> bool: ...
 
     async def search(
         self,

@@ -10,6 +10,7 @@ from pydantic import (
     FiniteFloat,
     HttpUrl,
     StringConstraints,
+    model_validator,
 )
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -75,6 +76,12 @@ class FilingCorpusManifest(BaseModel):
     index_version: Text | None = None
     status: Literal["selected", "indexing", "ready", "failed"]
 
+    @model_validator(mode="after")
+    def ready_requires_index_version(self) -> "FilingCorpusManifest":
+        if self.status == "ready" and self.index_version is None:
+            raise ValueError("A ready filing corpus requires an index version")
+        return self
+
 
 class FilingCorpusVersion(BaseModel):
     corpus_id: Text
@@ -97,12 +104,12 @@ class FilingEvidenceExcerpt(BaseModel):
     chunk_id: Text
     text: Text
     source: FilingEvidenceSource
-    retrieval_score: FiniteFloat | None = None
+    retrieval_distance: FiniteFloat | None = None
 
 
 class FilingVectorMatch(BaseModel):
     chunk_id: Text
-    score: FiniteFloat
+    distance: FiniteFloat
 
 
 class FilingEvidenceBundle(BaseModel):

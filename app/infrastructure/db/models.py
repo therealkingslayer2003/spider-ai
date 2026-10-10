@@ -1,6 +1,14 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -121,3 +129,80 @@ class SnapshotResearchArtifactModel(Base):
         back_populates="snapshot"
     )
     evidence: Mapped[EvidenceModel] = relationship(back_populates="snapshot")
+
+
+class FilingDocumentModel(Base):
+    __tablename__ = "filing_document_version"
+
+    document_id: Mapped[str] = mapped_column(String, primary_key=True)
+    content_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    issuer_cik: Mapped[str] = mapped_column(String(10), nullable=False)
+    accession_number: Mapped[str] = mapped_column(String, nullable=False)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    published_at_utc: Mapped[str] = mapped_column(String, nullable=False)
+    document_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FilingChunkModel(Base):
+    __tablename__ = "filing_chunk"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["document_id", "content_sha256"],
+            [
+                "filing_document_version.document_id",
+                "filing_document_version.content_sha256",
+            ],
+            ondelete="RESTRICT",
+        ),
+        Index("ix_filing_chunk_document", "document_id", "content_sha256"),
+    )
+
+    chunk_id: Mapped[str] = mapped_column(String, primary_key=True)
+    document_id: Mapped[str] = mapped_column(String, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String, nullable=False)
+    splitter_version: Mapped[str] = mapped_column(String, nullable=False)
+    chunk_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FilingCorpusModel(Base):
+    __tablename__ = "filing_corpus"
+
+    corpus_id: Mapped[str] = mapped_column(String, primary_key=True)
+    asset: Mapped[str] = mapped_column(String, nullable=False)
+    issuer_cik: Mapped[str] = mapped_column(String(10), nullable=False)
+    as_of_utc: Mapped[str] = mapped_column(String, nullable=False)
+    index_version: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class FilingCorpusDocumentModel(Base):
+    __tablename__ = "filing_corpus_document"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["document_id", "content_sha256"],
+            [
+                "filing_document_version.document_id",
+                "filing_document_version.content_sha256",
+            ],
+            ondelete="RESTRICT",
+        ),
+    )
+
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("filing_corpus.corpus_id", ondelete="RESTRICT"), primary_key=True
+    )
+    document_id: Mapped[str] = mapped_column(String, primary_key=True)
+    content_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    position: Mapped[int] = mapped_column(nullable=False)
+
+
+class FilingCorpusChunkModel(Base):
+    __tablename__ = "filing_corpus_chunk"
+
+    corpus_id: Mapped[str] = mapped_column(
+        ForeignKey("filing_corpus.corpus_id", ondelete="RESTRICT"), primary_key=True
+    )
+    chunk_id: Mapped[str] = mapped_column(
+        ForeignKey("filing_chunk.chunk_id", ondelete="RESTRICT"), primary_key=True
+    )

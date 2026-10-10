@@ -488,6 +488,12 @@ to `<project-root>/data/spider-ai.db`. `Database.initialize()` applies the
 readable SQL scripts in `app/infrastructure/db/migrations/`; the persistence
 service also calls it defensively when used outside FastAPI startup.
 
+Thesis filing storage uses migration `002` in the same database for versioned
+SEC documents, chunks, corpus membership, and index readiness. Original HTML
+bytes live under `SPIDER_AI_SEC_FILINGS_PATH`; Chroma vectors live under
+`SPIDER_AI_CHROMA_PATH`. The storage service checks both stores before publishing
+a ready corpus. These adapters are not yet connected to the Thesis graph.
+
 ```mermaid
 erDiagram
     ASSET_TYPE ||--o{ ASSET : categorizes

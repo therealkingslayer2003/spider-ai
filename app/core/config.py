@@ -10,6 +10,14 @@ def default_database_path() -> Path:
     return project_root / "data" / "spider-ai.db"
 
 
+def default_sec_filings_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "data" / "sec-filings"
+
+
+def default_chroma_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "data" / "chroma"
+
+
 class Settings(BaseSettings):
     app_name: str = "Spider"
     app_env: str = "local"
@@ -23,6 +31,8 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     spider_ai_db_path: Path = Field(default_factory=default_database_path)
+    spider_ai_sec_filings_path: Path = Field(default_factory=default_sec_filings_path)
+    spider_ai_chroma_path: Path = Field(default_factory=default_chroma_path)
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen3:14b"

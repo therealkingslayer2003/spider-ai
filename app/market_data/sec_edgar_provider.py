@@ -50,7 +50,7 @@ class SecEdgarClient:
                     try:
                         if url.endswith(".json"):
                             return response.json()
-                        return response.text
+                        return response.content
                     except ValueError as exc:
                         raise ServiceError(f"SEC returned invalid JSON: {url}") from exc
             except (
@@ -107,7 +107,7 @@ class SecEdgarClient:
         except SecSourceNotFoundError:
             return {"facts": {}}
 
-    async def document(self, url: str) -> str:
+    async def document(self, url: str) -> bytes:
         return await self._get(url)
 
     async def html_exhibits(self, cik: str, accession: str) -> list[str]:
