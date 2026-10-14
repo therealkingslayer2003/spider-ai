@@ -162,6 +162,8 @@ class FilingChunkModel(Base):
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     parser_version: Mapped[str] = mapped_column(String, nullable=False)
     splitter_version: Mapped[str] = mapped_column(String, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(nullable=False)
     chunk_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 

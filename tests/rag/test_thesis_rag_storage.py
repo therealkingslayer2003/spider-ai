@@ -1,3 +1,6 @@
+import hashlib
+import json
+import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -155,6 +158,12 @@ async def test_storage_round_trip_is_idempotent_and_keeps_exhibit_provenance(
                 await session.scalar(select(func.count()).select_from(FilingChunkModel))
                 == 2
             )
+            stored_chunk = await session.get(FilingChunkModel, chunks[0].chunk_id)
+            assert stored_chunk is not None
+            assert stored_chunk.text == chunks[0].text
+            assert stored_chunk.token_count == chunks[0].token_count
+            assert "text" not in json.loads(stored_chunk.chunk_json)
+            assert "token_count" not in json.loads(stored_chunk.chunk_json)
             assert (
                 await session.scalar(
                     select(func.count()).select_from(FilingCorpusDocumentModel)
@@ -190,6 +199,78 @@ async def test_storage_round_trip_is_idempotent_and_keeps_exhibit_provenance(
         )
     finally:
         await reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_existing_chunk_rows_are_backfilled_into_columns(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-filings.db"
+    migrations = (
+        Path(__file__).resolve().parents[2] / "app/infrastructure/db/migrations"
+    )
+    raw_hash = hashlib.sha256(b"<html>legacy filing</html>").hexdigest()
+    original_document = document("quarter.htm").model_copy(
+        update={
+            "content_sha256": raw_hash,
+            "raw_file_ref": f"sha256/{raw_hash[:2]}/{raw_hash}.html",
+        }
+    )
+    version = FilingDocumentVersion(
+        document_id=original_document.document_id, content_sha256=raw_hash
+    )
+    original_chunk = chunk(version, "Legacy revenue increased.", 0)
+
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            "CREATE TABLE schema_migration (version TEXT PRIMARY KEY, "
+            "applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        )
+        for version_number, filename in (
+            ("001", "001_initial_schema.sql"),
+            ("002", "002_thesis_rag_storage.sql"),
+        ):
+            connection.executescript((migrations / filename).read_text())
+            connection.execute(
+                "INSERT INTO schema_migration (version) VALUES (?)", (version_number,)
+            )
+        connection.execute(
+            "INSERT INTO filing_document_version VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                original_document.document_id,
+                raw_hash,
+                original_document.issuer_cik,
+                original_document.accession_number,
+                original_document.filename,
+                original_document.published_at.isoformat(),
+                original_document.model_dump_json(),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO filing_chunk VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                original_chunk.chunk_id,
+                version.document_id,
+                version.content_sha256,
+                original_chunk.parser_version,
+                original_chunk.splitter_version,
+                original_chunk.model_dump_json(),
+            ),
+        )
+
+    database = Database(path)
+    metadata = SqlFilingMetadataRepository(database)
+    try:
+        await database.initialize()
+        async with database.session_factory() as session:
+            stored = await session.get(FilingChunkModel, original_chunk.chunk_id)
+            assert stored is not None
+            assert stored.text == original_chunk.text
+            assert stored.token_count == original_chunk.token_count
+            assert "text" not in json.loads(stored.chunk_json)
+            assert "token_count" not in json.loads(stored.chunk_json)
+        assert await metadata.get_chunks([original_chunk.chunk_id]) == [original_chunk]
+        await metadata.upsert_chunks([original_chunk])
+    finally:
+        await database.close()
 
 
 @pytest.mark.asyncio

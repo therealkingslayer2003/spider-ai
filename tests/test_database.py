@@ -144,6 +144,12 @@ async def test_database_initialization_creates_file_schema_and_pragmas(
             applied_migrations = await connection.scalar(
                 text("SELECT COUNT(*) FROM schema_migration")
             )
+            filing_chunk_columns = {
+                row[1]: row[3]
+                for row in (
+                    await connection.execute(text("PRAGMA table_info(filing_chunk)"))
+                ).all()
+            }
             indexes = {
                 row[0]
                 for row in (
@@ -169,7 +175,9 @@ async def test_database_initialization_creates_file_schema_and_pragmas(
         assert foreign_keys == 1
         assert str(journal_mode).lower() == "wal"
         assert busy_timeout == 5000
-        assert applied_migrations == 2
+        assert applied_migrations == 3
+        assert filing_chunk_columns["text"] == 1
+        assert filing_chunk_columns["token_count"] == 1
         assert "ix_research_artifact_asset_created_at" in indexes
         assert "ix_evidence_asset_created_at" in indexes
     finally:

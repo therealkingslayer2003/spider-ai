@@ -1,5 +1,6 @@
 """SQL persistence for reusable SEC document versions and corpus selections."""
 
+import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
@@ -88,7 +89,7 @@ class SqlFilingMetadataRepository:
             for chunk in unique.values():
                 existing = await session.get(FilingChunkModel, chunk.chunk_id)
                 if existing is not None:
-                    if FilingChunk.model_validate_json(existing.chunk_json) != chunk:
+                    if self._chunk_from_row(existing) != chunk:
                         raise ValueError(
                             "Conflicting filing chunk metadata for the same ID"
                         )
@@ -100,7 +101,11 @@ class SqlFilingMetadataRepository:
                         content_sha256=chunk.document.content_sha256,
                         parser_version=chunk.parser_version,
                         splitter_version=chunk.splitter_version,
-                        chunk_json=chunk.model_dump_json(),
+                        text=chunk.text,
+                        token_count=chunk.token_count,
+                        chunk_json=chunk.model_dump_json(
+                            exclude={"text", "token_count"}
+                        ),
                     )
                 )
 
@@ -282,11 +287,18 @@ class SqlFilingMetadataRepository:
                     )
                 )
             ).all()
-            by_id = {
-                row.chunk_id: FilingChunk.model_validate_json(row.chunk_json)
-                for row in rows
-            }
+            by_id = {row.chunk_id: self._chunk_from_row(row) for row in rows}
             return [by_id[chunk_id] for chunk_id in chunk_ids if chunk_id in by_id]
+
+    @staticmethod
+    def _chunk_from_row(row: FilingChunkModel) -> FilingChunk:
+        return FilingChunk.model_validate(
+            {
+                **json.loads(row.chunk_json),
+                "text": row.text,
+                "token_count": row.token_count,
+            }
+        )
 
     @staticmethod
     async def _load_manifest(
