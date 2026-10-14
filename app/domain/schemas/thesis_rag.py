@@ -40,11 +40,26 @@ class FilingDocumentVersion(BaseModel):
     content_sha256: Sha256
 
 
+class ParsedFilingTableCell(BaseModel):
+    column: int = Field(ge=0)
+    colspan: int = Field(ge=1)
+    rowspan: int = Field(ge=1)
+    text: str
+    source_locator: Text
+
+
+class ParsedFilingTableRow(BaseModel):
+    source_locator: Text
+    cells: list[ParsedFilingTableCell]
+
+
 class ParsedFilingBlock(BaseModel):
     order: int = Field(ge=0)
+    kind: Literal["heading", "paragraph", "table"] = "paragraph"
     text: Text
     section_path: list[Text] = Field(default_factory=list)
     source_locator: Text
+    table_rows: list[ParsedFilingTableRow] = Field(default_factory=list)
 
 
 class ParsedFilingDocument(BaseModel):

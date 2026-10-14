@@ -60,6 +60,7 @@ data/*
 !data/.gitkeep
 instance/
 evals/reports/
+/tests/rag/rag_pipeline_test_runs/
 
 # Python wheel metadata
 pip-wheel-metadata/

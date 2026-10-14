@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,10 @@ def default_sec_filings_path() -> Path:
 
 def default_chroma_path() -> Path:
     return Path(__file__).resolve().parents[2] / "data" / "chroma"
+
+
+def default_tokenizer_cache_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "data" / "huggingface"
 
 
 class Settings(BaseSettings):
@@ -33,9 +37,21 @@ class Settings(BaseSettings):
     spider_ai_db_path: Path = Field(default_factory=default_database_path)
     spider_ai_sec_filings_path: Path = Field(default_factory=default_sec_filings_path)
     spider_ai_chroma_path: Path = Field(default_factory=default_chroma_path)
+    thesis_rag_tokenizer_cache_path: Path = Field(
+        default_factory=default_tokenizer_cache_path
+    )
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen3:14b"
+    ollama_embedding_model: str = "nomic-embed-text"
+    ollama_embedding_model_revision: str = "local-v1"
+    ollama_embedding_batch_size: int = Field(default=32, gt=0)
+    ollama_embedding_expected_dimensions: int = Field(default=768, gt=0)
+    ollama_embedding_max_input_chars: int = Field(default=1600, gt=0)
+    ollama_embedding_max_input_tokens: int = Field(default=450, gt=0)
+    thesis_rag_chunk_max_chars: int = Field(default=1600, ge=200)
+    thesis_rag_chunk_max_tokens: int = Field(default=450, ge=50)
+    thesis_rag_chunk_overlap_tokens: int = Field(default=40, ge=0)
     ollama_temperature: float = 0.2
     ollama_num_ctx: int = 16384
     fmp_enabled: bool = False
@@ -49,6 +65,21 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def validate_thesis_rag_limits(self) -> "Settings":
+        if self.thesis_rag_chunk_max_chars > self.ollama_embedding_max_input_chars:
+            raise ValueError("Thesis RAG chunks exceed the embedding character limit")
+        if self.thesis_rag_chunk_max_tokens > self.ollama_embedding_max_input_tokens:
+            raise ValueError("Thesis RAG chunks exceed the embedding token limit")
+        if (
+            self.thesis_rag_chunk_overlap_tokens
+            >= self.thesis_rag_chunk_max_tokens // 2
+        ):
+            raise ValueError(
+                "Thesis RAG overlap must be less than half the chunk limit"
+            )
+        return self
 
 
 @lru_cache

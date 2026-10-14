@@ -25,6 +25,8 @@ Use vertical feature packages with shared infrastructure. HTTP endpoints call se
 - Keep graph wiring separate from node behavior. Keep router state minimal and feature-specific context inside subgraphs.
 - Reuse `BaseChatModelClient` and prompt builders. Structured generation returns Pydantic objects; avoid unnecessary JSON round-trips.
 - Preserve shared tool lifetimes and tool-owned caches; do not add duplicate provider caches. Keep blocking vendor calls off the async event loop.
+- Put runtime tuning (including RAG splitter and embedding limits) in `app/core/config.py` and `.env.example`, then inject it at composition roots. Avoid hidden tuning defaults in feature constructors or CLIs; validate related limits and version processing changes.
+- Put config values of llm/embedding/tokenizer/integration services into .env under it's own category divided by comments, never hardcode config values in specific code places
 
 ## Contracts and evidence
 

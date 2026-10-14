@@ -12,16 +12,25 @@ from app.domain.schemas.thesis_rag import (
 
 
 class FilingHtmlParser(Protocol):
+    @property
+    def version(self) -> str: ...
+
     async def parse(
         self, document: FilingDocument, raw_html: bytes
     ) -> ParsedFilingDocument: ...
 
 
 class FilingChunkSplitter(Protocol):
+    @property
+    def version(self) -> str: ...
+
     async def split(self, document: ParsedFilingDocument) -> list[FilingChunk]: ...
 
 
 class FilingEmbeddingGenerator(Protocol):
+    @property
+    def version(self) -> str: ...
+
     async def embed_chunks(
         self, chunks: Sequence[FilingChunk]
     ) -> list[list[float]]: ...
