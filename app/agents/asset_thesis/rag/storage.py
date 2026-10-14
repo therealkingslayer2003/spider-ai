@@ -1,9 +1,15 @@
+import logging
 from collections.abc import Mapping, Sequence
+from time import perf_counter
 
 from app.agents.asset_thesis.rag.capabilities import (
     FilingMetadataRepository,
     FilingVectorIndex,
     RawFilingStore,
+)
+from app.agents.asset_thesis.rag.observability import (
+    log_failure_once,
+    rag_run,
 )
 from app.domain.schemas.thesis_rag import (
     FilingChunk,
@@ -11,6 +17,8 @@ from app.domain.schemas.thesis_rag import (
     FilingDocument,
     FilingDocumentVersion,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class FilingCorpusStorageService:
@@ -27,25 +35,110 @@ class FilingCorpusStorageService:
     async def store_document(
         self, document: FilingDocument, raw_html: bytes
     ) -> FilingDocumentVersion:
-        stored = await self._raw_store.save(document, raw_html)
-        await self._metadata.upsert_document(stored)
-        assert stored.content_sha256 is not None
-        return FilingDocumentVersion(
-            document_id=stored.document_id, content_sha256=stored.content_sha256
-        )
+        with rag_run() as run_id:
+            started = perf_counter()
+            logger.info(
+                "thesis_rag.store_document.start run_id=%s document_id=%s bytes=%d",
+                run_id,
+                document.document_id,
+                len(raw_html),
+            )
+            try:
+                stored = await self._raw_store.save(document, raw_html)
+                await self._metadata.upsert_document(stored)
+                assert stored.content_sha256 is not None
+                version = FilingDocumentVersion(
+                    document_id=stored.document_id,
+                    content_sha256=stored.content_sha256,
+                )
+            except Exception:
+                log_failure_once(
+                    logger,
+                    "store_document",
+                    ids=f"document_id={document.document_id}",
+                )
+                raise
+            logger.info(
+                "thesis_rag.store_document.done run_id=%s document_id=%s "
+                "content_sha256=%s duration_ms=%.1f",
+                run_id,
+                document.document_id,
+                version.content_sha256,
+                (perf_counter() - started) * 1000,
+            )
+            return version
 
     async def get_ready_corpus(self, corpus_id: str) -> FilingCorpusManifest | None:
-        manifest = await self._metadata.get_ready_manifest(corpus_id)
-        if manifest is None:
-            return None
-        chunk_ids = await self._metadata.get_indexed_chunk_ids(corpus_id)
-        if not chunk_ids or not await self._vector_index.contains_exactly(
-            manifest, chunk_ids
-        ):
-            raise RuntimeError("Ready corpus is missing indexed vectors")
-        return manifest
+        with rag_run() as run_id:
+            started = perf_counter()
+            logger.info(
+                "thesis_rag.corpus_lookup.start run_id=%s corpus_id=%s",
+                run_id,
+                corpus_id,
+            )
+            try:
+                manifest = await self._metadata.get_ready_manifest(corpus_id)
+                if manifest is None:
+                    logger.info(
+                        "thesis_rag.corpus_lookup.done run_id=%s corpus_id=%s "
+                        "cache_hit=False duration_ms=%.1f",
+                        run_id,
+                        corpus_id,
+                        (perf_counter() - started) * 1000,
+                    )
+                    return None
+                chunk_ids = await self._metadata.get_indexed_chunk_ids(corpus_id)
+                if not chunk_ids or not await self._vector_index.contains_exactly(
+                    manifest, chunk_ids
+                ):
+                    raise RuntimeError("Ready corpus is missing indexed vectors")
+            except Exception:
+                log_failure_once(logger, "corpus_lookup", ids=f"corpus_id={corpus_id}")
+                raise
+            logger.info(
+                "thesis_rag.corpus_lookup.done run_id=%s corpus_id=%s "
+                "cache_hit=True chunks=%d duration_ms=%.1f",
+                run_id,
+                corpus_id,
+                len(chunk_ids),
+                (perf_counter() - started) * 1000,
+            )
+            return manifest
 
     async def publish(
+        self,
+        manifest: FilingCorpusManifest,
+        chunks: Sequence[FilingChunk],
+        vectors: Mapping[str, Sequence[float]],
+    ) -> FilingCorpusManifest:
+        with rag_run() as run_id:
+            started = perf_counter()
+            logger.info(
+                "thesis_rag.publish.start run_id=%s corpus_id=%s chunks=%d vectors=%d",
+                run_id,
+                manifest.corpus_id,
+                len(chunks),
+                len(vectors),
+            )
+            try:
+                ready = await self._publish(manifest, chunks, vectors)
+            except Exception:
+                log_failure_once(
+                    logger, "publish", ids=f"corpus_id={manifest.corpus_id}"
+                )
+                raise
+            logger.info(
+                "thesis_rag.publish.done run_id=%s corpus_id=%s chunks=%d "
+                "status=%s duration_ms=%.1f",
+                run_id,
+                ready.corpus_id,
+                len(chunks),
+                ready.status,
+                (perf_counter() - started) * 1000,
+            )
+            return ready
+
+    async def _publish(
         self,
         manifest: FilingCorpusManifest,
         chunks: Sequence[FilingChunk],

@@ -1,13 +1,22 @@
 import asyncio
 import hashlib
+import logging
 import math
 import struct
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from threading import Lock
+from time import perf_counter
 from typing import Any
 
+from app.agents.asset_thesis.rag.observability import (
+    current_run_id,
+    log_failure_once,
+    rag_run,
+)
 from app.domain.schemas.thesis_rag import FilingCorpusManifest, FilingVectorMatch
+
+logger = logging.getLogger(__name__)
 
 
 class ChromaFilingVectorIndex:
@@ -21,18 +30,43 @@ class ChromaFilingVectorIndex:
         corpus: FilingCorpusManifest,
         vectors: Mapping[str, Sequence[float]],
     ) -> None:
-        if corpus.status != "indexing" or corpus.index_version is None:
-            raise ValueError("Only an indexing corpus with a version can be written")
-        if not vectors:
-            raise ValueError("A filing index requires at least one vector")
-        dimensions = {len(vector) for vector in vectors.values()}
-        if len(dimensions) != 1 or 0 in dimensions:
-            raise ValueError("Filing vectors must have one nonzero dimension")
-        if any(
-            not math.isfinite(value) for vector in vectors.values() for value in vector
-        ):
-            raise ValueError("Filing vectors must contain only finite values")
-        await asyncio.to_thread(self._upsert, corpus, vectors)
+        with rag_run() as run_id:
+            started = perf_counter()
+            logger.info(
+                "thesis_rag.index.start run_id=%s corpus_id=%s vectors=%d",
+                run_id,
+                corpus.corpus_id,
+                len(vectors),
+            )
+            try:
+                if corpus.status != "indexing" or corpus.index_version is None:
+                    raise ValueError(
+                        "Only an indexing corpus with a version can be written"
+                    )
+                if not vectors:
+                    raise ValueError("A filing index requires at least one vector")
+                dimensions = {len(vector) for vector in vectors.values()}
+                if len(dimensions) != 1 or 0 in dimensions:
+                    raise ValueError("Filing vectors must have one nonzero dimension")
+                if any(
+                    not math.isfinite(value)
+                    for vector in vectors.values()
+                    for value in vector
+                ):
+                    raise ValueError("Filing vectors must contain only finite values")
+                await asyncio.to_thread(self._upsert, corpus, vectors)
+            except Exception:
+                log_failure_once(logger, "index", ids=f"corpus_id={corpus.corpus_id}")
+                raise
+            logger.info(
+                "thesis_rag.index.done run_id=%s corpus_id=%s vectors=%d "
+                "dimensions=%d duration_ms=%.1f",
+                run_id,
+                corpus.corpus_id,
+                len(vectors),
+                next(iter(dimensions)),
+                (perf_counter() - started) * 1000,
+            )
 
     async def contains_exactly(
         self, corpus: FilingCorpusManifest, chunk_ids: Sequence[str]
@@ -56,15 +90,48 @@ class ChromaFilingVectorIndex:
         query_vector: Sequence[float],
         limit: int,
     ) -> list[FilingVectorMatch]:
-        if corpus.status != "ready" or corpus.index_version is None:
-            raise ValueError("Only a ready filing corpus can be searched")
-        if (
-            limit <= 0
-            or not query_vector
-            or any(not math.isfinite(value) for value in query_vector)
-        ):
-            raise ValueError("Search requires a finite query vector and positive limit")
-        return await asyncio.to_thread(self._search, corpus, query_vector, limit)
+        with rag_run() as run_id:
+            started = perf_counter()
+            logger.info(
+                "thesis_rag.search.start run_id=%s corpus_id=%s limit=%d",
+                run_id,
+                corpus.corpus_id,
+                limit,
+            )
+            try:
+                if corpus.status != "ready" or corpus.index_version is None:
+                    raise ValueError("Only a ready filing corpus can be searched")
+                if (
+                    limit <= 0
+                    or not query_vector
+                    or any(not math.isfinite(value) for value in query_vector)
+                ):
+                    raise ValueError(
+                        "Search requires a finite query vector and positive limit"
+                    )
+                matches = await asyncio.to_thread(
+                    self._search, corpus, query_vector, limit
+                )
+            except Exception:
+                log_failure_once(logger, "search", ids=f"corpus_id={corpus.corpus_id}")
+                raise
+            logger.info(
+                "thesis_rag.search.done run_id=%s corpus_id=%s matches=%d "
+                "duration_ms=%.1f",
+                run_id,
+                corpus.corpus_id,
+                len(matches),
+                (perf_counter() - started) * 1000,
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "thesis_rag.search.matches run_id=%s corpus_id=%s "
+                    "chunk_distances=%s",
+                    run_id,
+                    corpus.corpus_id,
+                    [(match.chunk_id, match.distance) for match in matches],
+                )
+            return matches
 
     @staticmethod
     def _collection_name(corpus: FilingCorpusManifest) -> str:
@@ -102,6 +169,16 @@ class ChromaFilingVectorIndex:
         batch_size = client.get_max_batch_size()
         for start in range(0, len(ids), batch_size):
             batch = ids[start : start + batch_size]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "thesis_rag.index.batch run_id=%s corpus_id=%s batch_id=%d "
+                    "vectors=%d first_chunk_id=%s",
+                    current_run_id(),
+                    corpus.corpus_id,
+                    start // batch_size,
+                    len(batch),
+                    batch[0],
+                )
             hashes = {item: self._vector_hash(vectors[item]) for item in batch}
             existing = collection.get(ids=batch, include=["metadatas"])
             for existing_id, metadata in zip(
