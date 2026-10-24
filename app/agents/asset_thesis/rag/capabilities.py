@@ -65,6 +65,10 @@ class FilingMetadataRepository(Protocol):
 
     async def get_indexed_chunk_ids(self, corpus_id: str) -> list[str]: ...
 
+    async def get_processing_versions(
+        self, corpus_id: str
+    ) -> tuple[str, str] | None: ...
+
     async def get_document(
         self, version: FilingDocumentVersion
     ) -> FilingDocument | None: ...

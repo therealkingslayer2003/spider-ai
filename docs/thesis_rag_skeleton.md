@@ -1,7 +1,8 @@
 # Thesis SEC filings RAG skeleton
 
-The SEC filing RAG boundary now supports storage and explicit-document
-ingestion. The parent Thesis graph and `ThesisDataPreparationGraph` stub remain
+The SEC filing RAG boundary supports storage, explicit-document ingestion,
+retrieval, and fixed-evidence analytical generation. The parent Thesis graph
+and `ThesisDataPreparationGraph` stub remain
 unchanged; an ordinary Thesis request still returns 501.
 
 `app/domain/schemas/thesis_rag.py` holds filing-document, parsed-block, chunk,
@@ -21,10 +22,9 @@ unchanged, with lower values representing closer matches.
 `app/agents/asset_thesis/rag/capabilities.py` defines the ports for parsing,
 splitting, embeddings, raw-file storage, SQL metadata, and vector indexing.
 `services.py` exposes independent ingestion and retrieval entry points for
-future CLI commands, tests, evals, and graph nodes. `ingest_documents` accepts
-an explicit document selection and is implemented; automatic SEC corpus
-selection through `ingest` and evidence retrieval still raise
-`NotImplementedError`. The existing `SecEdgarClient` now lives in
+future CLI commands, tests, and graph nodes. `ingest_documents` accepts
+an explicit document selection; automatic SEC corpus selection through `ingest`
+still raises `NotImplementedError`. The existing `SecEdgarClient` now lives in
 `app/market_data/sec_edgar_provider.py`; it is not wired into the production
 graph. Company Facts and market quotes remain separate structured-data work.
 
@@ -81,8 +81,7 @@ The tokenizer is [`nomic-ai/nomic-embed-text-v1.5`](https://huggingface.co/nomic
 [`nomic-embed-text:v1.5`](https://ollama.com/library/nomic-embed-text:v1.5) model links this Hugging Face model and reports a BERT
 tokenizer with CLS ID 101, SEP ID 102, and a 30,522-token vocabulary. The
 adapter accepts only published Nomic v1.5 Ollama model names. Exact token-count
-parity with a running Ollama model has not been measured here because that
-embedding model is not installed locally. Prefer the explicit `:v1.5` Ollama
+parity with a running Ollama model has not been measured here. Prefer the explicit `:v1.5` Ollama
 tag over a mutable alias; advance `OLLAMA_EMBEDDING_MODEL_REVISION` when local
 weights or model settings change.
 
@@ -107,6 +106,37 @@ snapshot_download(
 )
 PY
 ```
+
+Generation uses a separate tokenizer from Nomic: the configured Ollama chat
+model is `qwen3:14b`, matched to `Qwen/Qwen3-14B` at commit
+`40c069824f4251a91eefaf281ebe4c544efd3e18`. Install its tokenizer assets
+into the same local cache once:
+
+```sh
+.venv/bin/python - <<'PY'
+from huggingface_hub import snapshot_download
+from app.core.config import get_settings
+
+settings = get_settings()
+snapshot_download(
+    repo_id=settings.thesis_rag_chat_tokenizer_id,
+    revision=settings.thesis_rag_chat_tokenizer_revision,
+    cache_dir=str(settings.thesis_rag_tokenizer_cache_path),
+    allow_patterns=[
+        "config.json", "tokenizer.json", "tokenizer_config.json",
+        "special_tokens_map.json", "vocab.json", "merges.txt",
+    ],
+)
+PY
+```
+
+The counter loads only local assets, once per process. When
+`OLLAMA_CHAT_MODEL` differs from `THESIS_RAG_CHAT_TOKENIZER_MODEL`, or the
+matching pinned tokenizer is unavailable locally, the composition root uses
+a model-labeled text-size estimate and a 512-token fallback margin. It does
+not download assets at runtime. To regain local tokenizer counting after
+changing the chat model, configure a matching Hugging Face tokenizer ID and
+pinned revision, install its assets, and compare counts against Ollama.
 
 The compressed, unmodified Mastercard 2026-06-30 10-Q HTML in
 `tests/fixtures/sec/MA/ma-20260630.html.gz` provides a reproducible real filing
@@ -138,8 +168,8 @@ components. Chunk limits must not exceed embedding input limits; invalid
 combinations fail during configuration loading. Changing the input limits or
 chunk settings changes the processing version and creates a new
 corpus identity. The current implementation does not automatically discover or
-select SEC filings, generate answers, or run retrieval evals. Those are later
-stages. Parsing one filing preserves representative passages but does not
+select SEC filings. Parsing one
+filing preserves representative passages but does not
 establish retrieval quality.
 
 To write an explicit debug record of an indexing run, run:
@@ -211,3 +241,174 @@ passed. Ruff passed for changed files. Repository-wide Ruff still reports the
 pre-existing `UP042` in `app/domain/schemas/asset_snapshot.py`; with that
 rule ignored, the whole `app/` and `tests/` tree passes. Chroma emits one
 upstream Python 3.14 deprecation warning in the test suite.
+
+## Retrieval and analytical generation
+
+The baseline has three independently callable components under
+`app/agents/asset_thesis/rag/`. `SecFilingRetrievalService.retrieve` accepts an
+internal `FilingRetrievalRequest`: research ID, question, asset/CIK, exact
+research `as_of`, selected corpus/index version, and `top_k`. It checks a ready
+corpus, its selected asset/issuer/date, document publication times, and the
+current Nomic embedding version before dense search. The
+per-corpus Chroma collection provides the scope filter; only returned IDs are
+batch-loaded as canonical SQL chunks. Retrieval does not rescan every indexed
+chunk on each query. Dense mode preserves ascending Chroma L2 distance. The
+configured `dense-lexical-v1` mode retrieves a bounded candidate set and
+reranks its canonical text by query-term and adjacent-phrase overlap, using
+dense rank as a small tie-breaker. It returns the final `top_k` and retains each
+candidate's original distance. `THESIS_RAG_RETRIEVAL_RERANK_ENABLED=false`
+reproduces the dense baseline; `THESIS_RAG_RETRIEVAL_CANDIDATE_K` controls the
+candidate set separately from `THESIS_RAG_RETRIEVAL_TOP_K`. Results include a
+`ranking_version` so comparisons remain explicit. Retrieval preserves
+source identity, section path, period, URL, and DOM locator. A ready corpus has
+indexed chunks; an empty dense-search response raises `NoVectorsFoundError` rather than
+missing evidence. Missing stores and version mismatches also raise errors.
+The Nomic adapter applies `search_query:` once and refuses truncation.
+
+`SecFilingContextBuilder` deduplicates chunk IDs and whitespace-normalized
+text in rank order, then packs complete chunks. It assigns `E1`, `E2`, ...
+and retains a mapping to original ranked chunks. It counts the **entire**
+prompt rendered by `ThesisFilingPromptBuilder`, including instructions,
+question, source labels, metadata, context, and the generation model's
+single-user chat template, against `OLLAMA_NUM_CTX` minus reserved output and a
+safety margin. The structured-output schema is sent as Ollama's `format`
+parameter; it did not add to `prompt_eval_count` in the configured model check.
+With the matching assets, counts come from the pinned Qwen3 tokenizer, with
+truncation disabled. The 128-token margin covers the measured Ollama template
+difference. Fallback counts are estimates based on word/punctuation and UTF-8
+byte counts; the 512-token margin covers unknown chat framing and estimation
+drift but does not guarantee fit
+for every other model or prompt. `FilingContextBudget.count_kind` records which
+path was used.
+Oversized chunks are excluded whole, never truncated. Chunk text already
+contains its table headers, periods, units and section context.
+
+`SecFilingAnalyticalGenerator` consumes only `FilingPackedContext` and returns
+`FilingResearchAnswer` through the existing structured `BaseChatModelClient`.
+The result separates a cited answer and supported factual claims from
+interpretations, assumptions, uncertainties, and missing data. Each narrative
+entry has structured `text` and `evidence_ids`; inline `E` labels must also
+appear in that entry's IDs. It checks every citation against the packed `E`
+map and returns an explicit
+`insufficient_evidence` answer without an LLM call when nothing fits. Prompts
+treat filing text as data, not instructions, and forbid financial arithmetic.
+The `thesis-filing-grounded-v3` prompt shows only citation ID, form, publication
+and reporting dates, and section in the model-facing source header. Full
+document IDs, hashes, URLs, and HTML locators remain in the citation mapping.
+Optional narrative lists may be empty; `partial_evidence` identifies a missing
+requested component, while `answered` requires a cited answer and no missing
+data. Numeric answers must state the reported unit, including table-scale
+units. Citation IDs are validated in code against the packed mapping; semantic
+support still requires review or evaluation.
+If a model omits the optional answer field but supplies a cited supported
+claim, validation uses the first such claim as the answer.
+`SecFilingRagPipeline` composes the three services without LangGraph and
+returns all stage outputs together as `FilingRagRun`: question, ranked excerpts,
+packed context, response, references, corpus/parser/splitter/embedding/prompt/
+model versions, and estimated input/output token diagnostics. The returned object can be
+serialized for later evaluation without introducing a production dump writer.
+
+The composition root wires shared settings into these constructors.
+`THESIS_RAG_RETRIEVAL_TOP_K`,
+`THESIS_RAG_RETRIEVAL_CANDIDATE_K`,
+`THESIS_RAG_RETRIEVAL_RERANK_ENABLED`,
+`THESIS_RAG_GENERATION_RESERVED_OUTPUT_TOKENS`,
+`THESIS_RAG_GENERATION_SAFETY_MARGIN_TOKENS`,
+`THESIS_RAG_GENERATION_FALLBACK_SAFETY_MARGIN_TOKENS`, chat tokenizer
+identity/revision,
+and `OLLAMA_NUM_CTX` live in
+`.env.example`. The public request remains asset name/type. No Thesis graph
+node calls this pipeline yet, and no Ragas suite was added.
+
+Verify the local tokenizer against the exact LangChain/Ollama structured-output
+call using two prompts and one output token per call:
+
+```sh
+.venv/bin/python -m tests.rag.test_verify_thesis_chat_tokenizer_cli
+```
+
+The command requires the matching local tokenizer and prints local counts,
+Ollama `prompt_eval_count`, and differences;
+it fails if a difference exceeds the configured safety margin. On the local
+`qwen3:14b` model, the short request counted 10 locally versus 12 in Ollama;
+the longer structured research prompt counted 1,223 versus 1,225. Re-run this check after changing
+models, tokenizer revisions, or Ollama templates.
+
+With the configured Ollama embedding and chat models available, run an
+isolated live smoke test against the MA fixture:
+
+```sh
+.venv/bin/python -m tests.rag.test_thesis_rag_smoke_cli \
+  --fixture MA \
+  --question "What was Net Revenue for the three months ended June 30, 2026?" \
+  --task answer --top-k 4 --json
+```
+
+The runner writes SQL, raw HTML and Chroma only in a temporary directory. Each
+successful invocation saves one complete JSON report under
+`tests/rag/rag_retrieval_test_runs/<report_id>.json`, including the fixture,
+task, question, retrieval, packed context, answer, references and versions.
+The directory is gitignored. `--json` prints that same report to stdout;
+without it, the CLI prints a short summary and answer. The report path goes to
+stderr. It does not create debug dump files. The existing
+`--dump-debug` inspection flag remains the only path for persistent full
+pipeline dumps under `tests/rag/rag_pipeline_test_runs/`. Offline tests cover
+scope/version gating, SQL/Chroma retrieval, ranking, context budgets,
+deduplication, empty evidence, and citation validation. An isolated live run
+with the configured local Ollama models retrieved four chunks and returned the
+cited answer “$9,277 million” for that question. This checks execution, not
+retrieval quality or factual consistency across other questions. Exact chat
+token parity across arbitrary prompts remains unverified; diagnostics identify
+the local tokenizer and preserve the measured buffer. The updated live smoke
+run packed four excerpts, counted 2,029 local prompt tokens, and returned the
+cited answer `$9,277 million` with no optional narrative additions.
+
+## Retrieval and generation quality check
+
+The labeled `tests/fixtures/sec/MA/retrieval_cases.json` set distinguishes
+similar revenue measures and three- versus six-month periods. It is a regression
+example, not a cross-issuer quality estimate. Run the reproducible dense baseline
+and the bounded reranker in isolated temporary SQL/Chroma stores with the local
+Ollama embedding model:
+
+```sh
+.venv/bin/python -m tests.rag.test_thesis_rag_retrieval_eval_cli --fixture MA --top-k 4
+.venv/bin/python -m tests.rag.test_thesis_rag_retrieval_eval_cli --fixture MA --top-k 4 --rerank
+```
+
+On the configured local Nomic model, six labeled questions had relevant evidence
+within four dense results (coverage@4 = 6/6); first relevant ranks were
+`2, 3, 1, 1, 3, 1` (MRR 0.694). With 16 dense candidates and four final
+results, all six first relevant hits were rank 1 (coverage@4 = 6/6, MRR 1.0).
+Thus the measured gain is ranking, not evidence coverage on this small fixture.
+For the net-revenue question, dense rank 1 was a different $966 million revenue
+measure; the $9,277 million table was rank 2 at L2 distance 0.365. Reranking
+placed that table first while retaining the Chroma distance. The exact query
+input was `search_query: What was Net Revenue for the three months ended June
+30, 2026?` (21 Nomic tokens including special tokens); indexed chunks use one
+`search_document:` prefix. The local Chroma default is L2. The corpus and query
+had matching parser/splitter/embedding/index versions, so this was a dense
+ranking issue rather than a scope or version mismatch. The configured embedding
+revision is manually declared; a local Ollama tag digest is not checked on
+every request.
+
+The original CLI trace's four excerpts used 4,383 source-header characters out
+of 6,730 total context characters (65.1%). With the compact headers, the same
+excerpts use 745 header characters out of 3,092 (24.1%); the matching Qwen
+tokenizer estimates 1,585 prompt tokens versus 3,632 for the earlier rendering.
+Context packing and generation call the same prompt builder.
+
+`tests/fixtures/sec/MA/generation_cases.json` holds fixed source excerpts so
+generation can be checked separately from retrieval. Run, for example:
+
+```sh
+.venv/bin/python -m tests.rag.test_thesis_rag_generation_eval_cli \
+  --fixture MA --case direct_net_revenue
+```
+
+The four fixed-context live cases returned the expected $9,277 million and
+$966 million answers, a partial answer with the second requested metric missing,
+and an insufficient-evidence result for an unrelated cover page. A full
+retrieval-to-generation run with prompt v3 returned `$9,277 million` with a
+valid evidence ID and empty optional lists. These outcomes demonstrate the
+configured local models on this fixture, not general semantic grounding.

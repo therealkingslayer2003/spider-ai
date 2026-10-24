@@ -61,6 +61,7 @@ data/*
 instance/
 evals/reports/
 /tests/rag/rag_pipeline_test_runs/
+/tests/rag/rag_retrieval_test_runs/
 
 # Python wheel metadata
 pip-wheel-metadata/

@@ -38,3 +38,4 @@ Use vertical feature packages with shared infrastructure. HTTP endpoints call se
 Read `docs/architecture.md` for boundaries, `docs/product definition.md` for product intent, and relevant feature docs such as `docs/thesis_mode_v1.md` or `evals/README.md`. Treat implementation as evidence of current behavior and plans as intended work.
 
 Complete the requested scope; reuse existing paths before introducing abstractions. Update affected docs/contracts and report changes, checks actually run, and remaining gaps. Keep this file focused on repository-wide rules; detailed feature plans belong in their own documents.
+After an implementation finished provide a clear design overview to a user so it's easy to understand what was done and why.

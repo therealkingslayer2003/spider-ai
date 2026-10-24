@@ -10,8 +10,6 @@ from app.agents.asset_thesis.rag.capabilities import (
     FilingChunkSplitter,
     FilingEmbeddingGenerator,
     FilingHtmlParser,
-    FilingMetadataRepository,
-    FilingVectorIndex,
 )
 from app.agents.asset_thesis.rag.identity import make_corpus_id, make_index_version
 from app.agents.asset_thesis.rag.observability import (
@@ -19,12 +17,14 @@ from app.agents.asset_thesis.rag.observability import (
     log_failure_once,
     rag_run,
 )
+from app.agents.asset_thesis.rag.retrieval import (
+    SecFilingRetrievalService as SecFilingRetrievalService,
+)
 from app.agents.asset_thesis.rag.storage import FilingCorpusStorageService
 from app.domain.schemas.thesis_rag import (
     FilingChunk,
     FilingCorpusManifest,
     FilingDocument,
-    FilingEvidenceBundle,
     ParsedFilingDocument,
 )
 
@@ -195,22 +195,3 @@ class SecFilingIngestionService:
 
     async def ingest(self, *, asset: str, as_of: datetime) -> FilingCorpusManifest:
         raise NotImplementedError("SEC filing ingestion is not implemented yet.")
-
-
-class SecFilingRetrievalService:
-    """Will return cited filing excerpts from one prepared corpus."""
-
-    def __init__(
-        self,
-        metadata: FilingMetadataRepository,
-        embeddings: FilingEmbeddingGenerator,
-        vector_index: FilingVectorIndex,
-    ) -> None:
-        self._metadata = metadata
-        self._embeddings = embeddings
-        self._vector_index = vector_index
-
-    async def retrieve(
-        self, *, query: str, corpus_id: str, limit: int
-    ) -> FilingEvidenceBundle:
-        raise NotImplementedError("SEC filing retrieval is not implemented yet.")

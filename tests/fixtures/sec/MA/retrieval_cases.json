@@ -1,0 +1,38 @@
+[
+  {
+    "name": "quarterly_net_revenue",
+    "question": "What was Net Revenue for the three months ended June 30, 2026?",
+    "relevant_text": ["Three Months Ended June 30,", "Net revenue | $ | 9,277"],
+    "expected_answer": "$9,277 million"
+  },
+  {
+    "name": "half_year_net_revenue",
+    "question": "What was Net Revenue for the six months ended June 30, 2026?",
+    "relevant_text": ["Six Months Ended June 30,", "Net revenue | $ | 9,277", "17,675"],
+    "expected_answer": "$17,675 million"
+  },
+  {
+    "name": "quarterly_payment_network_revenue",
+    "question": "What was payment network net revenue for the three months ended June 30, 2026?",
+    "relevant_text": ["Three Months Ended June 30,", "Payment network | $ | 5,451"],
+    "expected_answer": "$5,451 million"
+  },
+  {
+    "name": "quarterly_recognized_obligations",
+    "question": "How much revenue was recognized from previously satisfied performance obligations in the three months ended June 30, 2026?",
+    "relevant_text": ["Revenue recognized from performance obligations satisfied", "$966 million"],
+    "expected_answer": "$966 million"
+  },
+  {
+    "name": "quarterly_operating_income",
+    "question": "What was operating income for the three months ended June 30, 2026?",
+    "relevant_text": ["Three Months Ended June 30,", "Operating income | $ | 5,587"],
+    "expected_answer": "$5,587 million"
+  },
+  {
+    "name": "half_year_operating_cash_flow",
+    "question": "What were net cash flows from operations for the six months ended June 30, 2026?",
+    "relevant_text": ["Other financial highlights for the six months ended June 30, 2026", "$6.8 billion"],
+    "expected_answer": "$6.8 billion"
+  }
+]

@@ -206,6 +206,23 @@ class SqlFilingMetadataRepository:
                 ).all()
             )
 
+    async def get_processing_versions(self, corpus_id: str) -> tuple[str, str] | None:
+        """Read index processing identity without loading chunk plaintext."""
+        await self._database.initialize()
+        async with self._database.session_factory() as session:
+            row = (
+                await session.execute(
+                    select(
+                        FilingChunkModel.parser_version,
+                        FilingChunkModel.splitter_version,
+                    )
+                    .join(FilingCorpusChunkModel)
+                    .where(FilingCorpusChunkModel.corpus_id == corpus_id)
+                    .limit(1)
+                )
+            ).first()
+            return (row[0], row[1]) if row else None
+
     async def mark_ready(
         self, corpus_id: str, chunk_ids: Sequence[str]
     ) -> FilingCorpusManifest:
